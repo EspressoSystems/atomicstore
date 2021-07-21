@@ -1,0 +1,10 @@
+[package]
+name = "atomicstore"
+version = "0.1.0"
+authors = ["Nathan F Yospe <nathan@translucence.net>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+snafu = { version = "0.6.10", features = ["backtraces"] }
