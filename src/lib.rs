@@ -1,7 +1,7 @@
-pub mod atomic_store;
 pub mod append_log;
-pub mod recent_log;
+pub mod atomic_store;
 pub mod error;
+pub mod rolling_log;
 
 pub use crate::atomic_store::PersistentStore;
 

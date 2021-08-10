@@ -1,7 +1,7 @@
-use std::fs::File;
-use serde::{Deserialize, Serialize};
-use crate::error::PersistenceError;
 use crate::atomic_store::{PersistentStore, StorageLocation};
+use crate::error::PersistenceError;
+use serde::{Deserialize, Serialize};
+use std::fs::File;
 
 struct RollingLog<StoredResource> {
     current_file: File,
@@ -11,17 +11,16 @@ struct RollingLog<StoredResource> {
 }
 
 impl RollingLog<StoredResource> {
-  pub fn load(file_pattern: &str) -> Result<RollingLog<StoredResource>, PersistenceError> {
+    pub fn load(
+        file_pattern: &str,
+        counter: u32,
+        write_pos: u64,
+    ) -> Result<RollingLog<StoredResource>, PersistenceError> {
+    }
 
-  }
+    pub fn create_new(file_pattern: &str) -> Result<RollingLog<StoredResource>, PersistenceError> {}
 
-  pub fn create_new(file_pattern: &str) -> Result<RollingLog<StoredResource>, PersistenceError> {
-
-  }
-
-  pub fn delete_all(file_pattern: &str) -> Result<RollingLog<StoredResource>, PersistenceError> {
-
-  }
+    pub fn delete_all(file_pattern: &str) -> Result<RollingLog<StoredResource>, PersistenceError> {}
 }
 
 impl PersistentStore<StoredResource> for RollingLog {
@@ -30,7 +29,10 @@ impl PersistentStore<StoredResource> for RollingLog {
     fn active_location(&self) -> Option<StorageLocation>;
     fn update_location(&mut self) -> Option<StorageLocation>;
 
-    fn store_resource(&mut self, resource: &ResourceUnit) -> Result<StorageLocation, PersistenceError>;
+    fn store_resource(
+        &mut self,
+        resource: &ResourceUnit,
+    ) -> Result<StorageLocation, PersistenceError>;
     fn load_latest(&self) -> Result<ResourceUnit, PersistenceError>;
     fn load_specified(&self, location: &StorageLocation) -> Result<ResourceUnit, PersistenceError>;
 }

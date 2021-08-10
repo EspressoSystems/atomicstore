@@ -13,5 +13,4 @@ pub enum PersistenceError {
         /// the write position in the file
         position: u64,
     },
-
 }
