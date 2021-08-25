@@ -30,12 +30,12 @@ fn main() -> Result<(), PersistenceError> {
     let b_list: Vec<ThingB>;
     let c: ThingC;
 
-    let persisted_state: AtomicStore;
-    let persisted_a: AppendLog<ThingA>;
+    let store_loader = AtomicStoreLoader::create_new(env::current_dir()?.as_path(), "persisted_things_store");
+    
+    let persisted_a: AppendLog<ThingA> = AppendLog::create_new();
     let persisted_b: AppendLog<ThingB>;
     let persisted_c: RollingLog<ThingC>;
 
-    let store_loader = AtomicStoreLoader::new(env::current_dir()?.as_path(), "persisted_things_store");
 }
 
 

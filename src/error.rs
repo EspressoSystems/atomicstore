@@ -13,4 +13,10 @@ pub enum PersistenceError {
         /// the write position in the file
         position: u64,
     },
+    /// Failed to resolve path
+    #[snafu(display("Failed to resolve a path {:?}", path))]
+    FailedToResolvePath {
+        /// The provided path
+        path: Path,
+    },
 }

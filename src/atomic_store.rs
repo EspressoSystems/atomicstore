@@ -15,15 +15,18 @@ pub trait PersistentStore {
     fn persisted_location(&self) -> Option<StorageLocation>;
     /// moving position as local store operations complete
     fn active_location(&self) -> Option<StorageLocation>;
-    /// set persisted_location to active_location, perform any cleanup
+    /// set persisted_location to active_location, perform any cleanup, mark version complete
+    /// returns persisted location of latest resource, None if no resource is available
     fn update_location(&mut self) -> Option<StorageLocation>;
 
+    fn wait_for_version(&self) -> Result<(), PersistenceError>;
+
+    /// the resource key should be the file pattern, and the loader will enforce uniqueness
     fn resource_key(&self) -> &str;
 
     /// persist the next unit of resource
     fn store_resource(
         &mut self,
-        key: &str,
         resource: &ResourceUnit,
     ) -> Result<StorageLocation, PersistenceError>;
 
@@ -37,6 +40,7 @@ pub trait PersistentStore {
 /// This unit allows a load to be confident that it is consistent with a single point in time
 /// without persistant store operations blocking the entire system from beginning to end
 pub struct AtomicStoreLoader {
+    file_path: Path,
     file_pattern: String,
     file_counter: u32,
     // TODO: type checking on load/store format embedded in StorageLocation?
@@ -53,6 +57,7 @@ impl AtomicStoreLoader {
 
 pub struct AtomicStore {
     /// because there is only one instance per file for the table of contents, we do not keep it open.
+    file_path: Path,
     file_pattern: String,
     file_counter: u32,
 
@@ -60,7 +65,8 @@ pub struct AtomicStore {
 }
 
 impl AtomicStore {
-    fn load_store(load_info: AtomicStoreLoader) -> Result<AtomicStore, PersistenceError>;
+    pub fn load_store(load_info: AtomicStoreLoader) -> Result<AtomicStore, PersistenceError>;
+    pub fn create_new(deps_info: AtomicStoreLoader) -> Result<AtomicStore, PersistenceError>;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
