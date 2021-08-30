@@ -65,13 +65,13 @@ pub struct AtomicStore {
 }
 
 impl AtomicStore {
-    pub fn load_store(load_info: AtomicStoreLoader) -> Result<AtomicStore, PersistenceError>;
-    pub fn create_new(deps_info: AtomicStoreLoader) -> Result<AtomicStore, PersistenceError>;
+    fn load_store(load_info: AtomicStoreLoader) -> Result<AtomicStore, PersistenceError>;
+    fn create_new(deps_info: AtomicStoreLoader) -> Result<AtomicStore, PersistenceError>;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StorageLocation {
-    pub file_pattern: String,
     pub file_counter: u32,
-    pub file_offset: u64,
+    pub store_start: u64,
+    pub store_length: u64,
 }

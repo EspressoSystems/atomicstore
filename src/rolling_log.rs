@@ -1,9 +1,11 @@
 use crate::atomic_store::{PersistentStore, StorageLocation};
 use crate::error::PersistenceError;
+use crate::utils::PersistedLocationHandler;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 
 struct RollingLog<StoredResource> {
+    persisted_sync: PersistedLocationHandler,
     current_file: File,
     current_write_pos: u64,
     file_pattern: String,
@@ -12,10 +14,11 @@ struct RollingLog<StoredResource> {
 
 impl RollingLog<StoredResource> {
     pub fn load(
-        file_pattern: &str,
-        counter: u32,
-        write_pos: u64,
+        location: Option<StorageLocation>,
     ) -> Result<RollingLog<StoredResource>, PersistenceError> {
+        Ok(RollingLog {
+            persisted_sync: PersistedLocationHandler::new(location),
+        })
     }
 
     pub fn create_new(file_pattern: &str) -> Result<RollingLog<StoredResource>, PersistenceError> {}

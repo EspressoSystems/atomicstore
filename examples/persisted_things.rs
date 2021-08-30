@@ -1,11 +1,11 @@
-use std::env;
-use serde::{de::DeserializeOwned, Serialize};
 use atomic_store::{
     append_log::AppendLog,
     atomic_store::{AtomicStore, AtomicStoreLoader},
-    rolling_log::RollingLog,
     error::PersistenceError,
+    rolling_log::RollingLog,
 };
+use serde::{de::DeserializeOwned, Serialize};
+use std::env;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ThingA {
@@ -30,12 +30,10 @@ fn main() -> Result<(), PersistenceError> {
     let b_list: Vec<ThingB>;
     let c: ThingC;
 
-    let store_loader = AtomicStoreLoader::create_new(env::current_dir()?.as_path(), "persisted_things_store");
-    
+    let store_loader =
+        AtomicStoreLoader::create_new(env::current_dir()?.as_path(), "persisted_things_store");
+
     let persisted_a: AppendLog<ThingA> = AppendLog::create_new();
     let persisted_b: AppendLog<ThingB>;
     let persisted_c: RollingLog<ThingC>;
-
 }
-
-
