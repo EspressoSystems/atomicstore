@@ -3,10 +3,12 @@ use crate::error::{
     StdIoOpenError, StdIoReadError, StdIoWriteError,
 };
 
+use chrono::Utc;
 use glob::glob;
 use serde::{Deserialize, Serialize};
 use snafu::ResultExt;
 
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
@@ -94,7 +96,7 @@ fn format_working_file_path(root_path: &Path, file_pattern: &str) -> PathBuf {
 }
 
 impl AtomicStoreLoader {
-    pub fn new(
+    pub fn load_from_stored(
         storage_path: &Path,
         file_pattern: &str,
     ) -> Result<AtomicStoreLoader, PersistenceError> {
@@ -139,7 +141,7 @@ impl AtomicStoreLoader {
                     resources: HashMap::new(),
                 });
             }
-            alt_path_buf = max_match.unwrap().context(GlobRuntime)?.clone();
+            alt_path_buf = max_match.unwrap().context(GlobRuntime)?;
             alt_path_buf.as_path()
         };
         if !load_path.is_file() {
@@ -160,6 +162,41 @@ impl AtomicStoreLoader {
             resources: HashMap::new(),
         })
     }
+    pub fn create_new(
+        storage_path: &Path,
+        file_pattern: &str,
+    ) -> Result<AtomicStoreLoader, PersistenceError> {
+        if !storage_path.exists() {
+            fs::create_dir_all(storage_path).context(StdIoDirOpsError)?;
+        } else if format_archived_file_path(storage_path, file_pattern, 0).exists()
+            || format_latest_file_path(storage_path, file_pattern).exists()
+        {
+            let mut backup_path = storage_path.to_path_buf();
+            let mut temp_path = storage_path.to_path_buf();
+            if !temp_path.pop() {
+                // TODO: maybe use some kind of known location instead?
+                // std::env::temp_dir() is not guaranteed secure, std::env::current_dir() and std::env::home_dir() are unreliable.
+                // Maybe it's better to just require the path to be in a writable parent if you're going to try to create new with existing files.
+                return Err(PersistenceError::FailedToResolvePath {
+                    path: storage_path.to_string_lossy().to_string(),
+                });
+            }
+            temp_path.push("temporary");
+            backup_path.push(format!("backup.{}", Utc::now().timestamp()));
+
+            fs::rename(&storage_path, &temp_path).context(StdIoDirOpsError)?;
+            fs::create_dir(&storage_path).context(StdIoDirOpsError)?;
+            fs::rename(&temp_path, &backup_path).context(StdIoDirOpsError)?;
+        }
+        // TODO: sane behavior if files are already present
+        Ok(AtomicStoreLoader {
+            file_path: storage_path.to_path_buf(),
+            file_pattern: String::from(file_pattern),
+            file_counter: 0,
+            resource_files: HashMap::new(),
+            resources: HashMap::new(),
+        })
+    }
     pub(crate) fn persistence_path(&self) -> &Path {
         self.file_path.as_path()
     }
@@ -171,11 +208,10 @@ impl AtomicStoreLoader {
         key: &str,
         resource: Arc<RwLock<dyn PersistentStore>>,
     ) -> Result<(), PersistenceError> {
-        let key = key.to_string();
-        if self.resources.contains_key(&key) {
-            return Err(PersistenceError::DuplicateResourceKey { key });
+        if let Entry::Vacant(insert_point) = self.resources.entry(key.to_string()) {
+            insert_point.insert(resource);
         } else {
-            self.resources.insert(key, resource);
+            return Err(PersistenceError::DuplicateResourceKey { key: key.to_string() });
         }
         Ok(())
     }
@@ -216,7 +252,7 @@ impl AtomicStore {
             format_archived_file_path(&self.file_path, &self.file_pattern, self.file_counter);
         let temp_file_path = format_working_file_path(&self.file_path, &self.file_pattern);
         let mut temp_file = File::create(&temp_file_path).context(StdIoOpenError)?;
-        self.file_counter = self.file_counter + 1; // counter should match after rename
+        self.file_counter += 1; // counter should match after rename
         let out_state = AtomicStoreFileContents {
             file_counter: self.file_counter,
             resource_files: collected_locations,

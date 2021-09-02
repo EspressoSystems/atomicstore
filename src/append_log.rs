@@ -17,7 +17,7 @@ use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
-struct AppendLog<StoredResource: 'static> {
+pub struct AppendLog<StoredResource: 'static> {
     persisted_sync: PersistedLocationHandler,
     file_path: PathBuf,
     file_pattern: String,
@@ -132,6 +132,8 @@ impl<StoredResource: Serialize + DeserializeOwned> AppendLog<StoredResource> {
         Ok(())
     }
 
+    // Writes out a resource instance; does not update the commit position, but in this version, does advance the pending commit position.
+    // In the future, we may support a queue of commit points, or even entire sequences of pre-written alternative future versions (for chained consensus), which would require a more complex interface.
     pub fn store_resource(
         &mut self,
         resource: &StoredResource,
@@ -140,26 +142,35 @@ impl<StoredResource: Serialize + DeserializeOwned> AppendLog<StoredResource> {
             self.open_write_file()?;
         }
         let serialized = bincode::serialize(resource).context(BincodeSerError)?;
-        let _wrote = self
-            .write_to_file
+        let resource_length = serialized.len() as u64;
+        self.write_to_file
             .as_ref()
             .unwrap()
             .write_all(&serialized)
             .context(StdIoWriteError)?;
-        self.write_pos = self.write_pos + serialized.len() as u64;
-        if self.write_pos >= self.file_fill_size {
-            self.write_pos = 0;
-            self.write_file_counter = self.write_file_counter + 1;
-            self.write_to_file = None;
-        }
-        Ok(StorageLocation {
+
+        let location = StorageLocation {
             file_counter: self.write_file_counter,
             store_start: self.write_pos,
-            store_length: 0,
-        })
+            store_length: resource_length,
+        };
+
+        self.write_pos += resource_length;
+        if self.write_pos >= self.file_fill_size {
+            self.write_pos = 0;
+            self.write_file_counter += 1;
+            self.write_to_file = None;
+        }
+        self.persisted_sync.advance_next(Some(location));
+        Ok(location)
     }
 
-    /// Opens a new handle to the file. Possibly need to revisit in the future?
+    // This currenty won't have any effect if called again before the atomic store has processed the prior committed version. A more appropriate behavior might be to block. A version that supports queued writes could enqueue the commit points.
+    pub fn commit_version(&mut self) {
+        self.persisted_sync.update_version();
+    }
+
+    // Opens a new handle to the file. Possibly need to revisit in the future?
     pub fn load_latest(&self) -> Result<StoredResource, PersistenceError> {
         if let Some(location) = self.persisted_sync.last_location() {
             self.load_specified(location)
@@ -193,7 +204,7 @@ impl<StoredResource> PersistentStore for AppendLog<StoredResource> {
         &self.file_pattern
     }
     fn persisted_location(&self) -> Option<StorageLocation> {
-        self.persisted_sync.last_location().clone()
+        *self.persisted_sync.last_location()
     }
     fn wait_for_version(&self) -> Result<(), PersistenceError> {
         self.persisted_sync.wait_for_version();

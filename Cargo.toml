@@ -1,5 +1,5 @@
 [package]
-name = "atomicstore"
+name = "atomic_store"
 version = "0.1.0"
 authors = ["Nathan F Yospe <nathan@translucence.net>"]
 edition = "2018"
