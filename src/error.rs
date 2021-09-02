@@ -1,4 +1,5 @@
 use bincode;
+use glob;
 use snafu::Snafu;
 
 /// Error type for AtomicStore
@@ -32,26 +33,38 @@ pub enum PersistenceError {
         /// the write position in the file
         position: u64,
     },
-    /// Unspecified IO Error
-    #[snafu(display("std::io::Error {:?}", e))]
-    StdIoError {
-        e: std::io::Error,
+    /// Duplicate resource name
+    #[snafu(display("Resource key collision for {}", key))]
+    DuplicateResourceKey {
+        /// Resource key/file pattern
+        key: String,
     },
-    /// Unspecified bincode ser/de Error
-    #[snafu(display("bincode error {:?}", e))]
-    BincodeError {
-        e: bincode::Error,
-    }
+    /// std::io directory operations error
+    StdIoDirOpsError { source: std::io::Error },
+    /// std::io open error
+    StdIoOpenError { source: std::io::Error },
+    /// std::io seek error
+    StdIoSeekError { source: std::io::Error },
+    /// std::io write error
+    StdIoWriteError { source: std::io::Error },
+    /// std::io read error
+    StdIoReadError { source: std::io::Error },
+    /// Bincode serialization error
+    BincodeSerError { source: bincode::Error },
+    /// Bincode deserialization error
+    BincodeDeError { source: bincode::Error },
+    /// Glob syntax error
+    GlobSyntax { source: glob::PatternError },
+    /// Glob iteration error
+    GlobRuntime { source: glob::GlobError },
+    /// Placeholder for PoisonError specializations
+    SyncPoisonError { description: String },
 }
 
-impl From<std::io::Error> for PersistenceError {
-    fn from(e: std::io::Error) -> Self {
-        PersistenceError::StdIoError{e}
-    }
-}
-
-impl From<bincode::Error> for PersistenceError {
-    fn from(e: bincode::Error) -> Self {
-        PersistenceError::BincodeError{e}
+impl<T> From<std::sync::PoisonError<T>> for PersistenceError {
+    fn from(error: std::sync::PoisonError<T>) -> Self {
+        PersistenceError::SyncPoisonError {
+            description: error.to_string(),
+        }
     }
 }
