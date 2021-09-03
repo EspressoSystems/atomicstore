@@ -3,7 +3,7 @@ use crate::error::{
     BincodeDeError, BincodeSerError, PersistenceError, StdIoDirOpsError, StdIoOpenError,
     StdIoReadError, StdIoSeekError, StdIoWriteError,
 };
-use crate::utils::PersistedLocationHandler;
+use crate::version_sync::PersistedLocationHandler;
 
 use chrono::Utc;
 use serde::de::DeserializeOwned;
@@ -17,6 +17,7 @@ use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
+#[derive(Debug)]
 pub struct RollingLog<StoredResource: 'static> {
     persisted_sync: PersistedLocationHandler,
     file_path: PathBuf,
@@ -89,19 +90,20 @@ impl<StoredResource: Serialize + DeserializeOwned> RollingLog<StoredResource> {
 
     fn open_write_file(&mut self) -> Result<(), PersistenceError> {
         let mut out_file_path_buf = self.file_path.clone();
-        out_file_path_buf
-            .set_file_name(format!("{}_{}", self.file_pattern, self.write_file_counter));
+        out_file_path_buf.push(format!("{}_{}", self.file_pattern, self.write_file_counter));
         let out_file_path = out_file_path_buf.as_path();
+
         if out_file_path.exists() {
             if !out_file_path.is_file() {
                 return Err(PersistenceError::InvalidPathToFile {
                     path: out_file_path.to_string_lossy().to_string(),
                 });
             }
+
             if let Ok(metadata) = fs::metadata(out_file_path) {
                 if metadata.len() > self.write_pos {
                     let mut backup_path = self.file_path.clone();
-                    backup_path.set_file_name(format!(
+                    backup_path.push(format!(
                         "{}_{}.bak.{}",
                         self.file_pattern,
                         self.write_file_counter,
@@ -170,6 +172,10 @@ impl<StoredResource: Serialize + DeserializeOwned> RollingLog<StoredResource> {
         self.persisted_sync.update_version();
     }
 
+    pub fn skip_version(&mut self) {
+        self.persisted_sync.skip_version();
+    }
+
     // Opens a new handle to the file. Possibly need to revisit in the future?
     pub fn load_latest(&self) -> Result<StoredResource, PersistenceError> {
         if let Some(location) = self.persisted_sync.last_location() {
@@ -185,8 +191,7 @@ impl<StoredResource: Serialize + DeserializeOwned> RollingLog<StoredResource> {
         location: &StorageLocation,
     ) -> Result<StoredResource, PersistenceError> {
         let mut read_file_path_buf = self.file_path.clone();
-        read_file_path_buf
-            .set_file_name(format!("{}_{}", self.file_pattern, location.file_counter));
+        read_file_path_buf.push(format!("{}_{}", self.file_pattern, location.file_counter));
         let mut read_file = File::open(read_file_path_buf.as_path()).context(StdIoOpenError)?;
         read_file
             .seek(SeekFrom::Start(location.store_start))

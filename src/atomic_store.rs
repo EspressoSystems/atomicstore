@@ -10,6 +10,7 @@ use snafu::ResultExt;
 
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::fmt;
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -36,24 +37,19 @@ pub trait PersistentStore {
     fn start_next_version(&mut self) -> Result<(), PersistenceError>;
 }
 
-/// The central index of an atomic version of truth across multiple persisted data structures
-/// This unit allows a load to be confident that it is consistent with a single point in time
-/// without persistant store operations blocking the entire system from beginning to end
-pub struct AtomicStoreLoader {
-    file_path: PathBuf,
-    file_pattern: String,
-    file_counter: u32,
-    // TODO: type checking on load/store format embedded in StorageLocation?
-    resource_files: HashMap<String, StorageLocation>,
-    resources: HashMap<String, Arc<RwLock<dyn PersistentStore>>>,
-}
-
 /// This exists to provide a common type for serializing and deserializing of the atomic store
 /// table of contents, so the prior state can be pre-loaded without sacrificing single point of initialization.
 #[derive(Serialize, Deserialize)]
 pub struct AtomicStoreFileContents {
     pub file_counter: u32,
     pub resource_files: HashMap<String, StorageLocation>,
+}
+
+fn load_state(path: &Path) -> Result<AtomicStoreFileContents, PersistenceError> {
+    let mut file = File::open(path).context(StdIoOpenError)?;
+    let mut buf = Vec::new();
+    file.read_to_end(&mut buf).context(StdIoReadError)?;
+    bincode::deserialize::<AtomicStoreFileContents>(&buf[..]).context(BincodeDeError)
 }
 
 // fn extract_count(file_pattern: &str, path_result: glob::GlobResult) -> Option<(u32, PathBuf)> {
@@ -79,20 +75,33 @@ fn extract_count(file_pattern: &str, path_result: &glob::GlobResult) -> Option<u
 
 fn format_latest_file_path(root_path: &Path, file_pattern: &str) -> PathBuf {
     let mut buf = root_path.to_path_buf();
-    buf.set_file_name(format!("{}_latest", file_pattern));
+    buf.push(format!("{}_latest", file_pattern));
     buf
 }
 
 fn format_archived_file_path(root_path: &Path, file_pattern: &str, counter: u32) -> PathBuf {
     let mut buf = root_path.to_path_buf();
-    buf.set_file_name(format!("{}_archived_{}", file_pattern, counter));
+    buf.push(format!("{}_archived_{}", file_pattern, counter));
     buf
 }
 
 fn format_working_file_path(root_path: &Path, file_pattern: &str) -> PathBuf {
     let mut buf = root_path.to_path_buf();
-    buf.set_file_name(format!(".{}_working", file_pattern));
+    buf.push(format!(".{}_working", file_pattern));
     buf
+}
+
+/// The central index of an atomic version of truth across multiple persisted data structures
+/// This unit allows a load to be confident that it is consistent with a single point in time
+/// without persistant store operations blocking the entire system from beginning to end
+pub struct AtomicStoreLoader {
+    file_path: PathBuf,
+    file_pattern: String,
+    file_counter: u32,
+    initial_run: bool,
+    // TODO: type checking on load/store format embedded in StorageLocation?
+    resource_files: HashMap<String, StorageLocation>,
+    resources: HashMap<String, Arc<RwLock<dyn PersistentStore>>>,
 }
 
 impl AtomicStoreLoader {
@@ -109,7 +118,7 @@ impl AtomicStoreLoader {
             let max_match = if storage_path.exists() {
                 // attempt to use the most recent backup file
                 let mut path_pattern_buf = file_path.clone();
-                path_pattern_buf.set_file_name(format!("{}_archived_*", file_pattern));
+                path_pattern_buf.push(format!("{}_archived_*", file_pattern));
                 let path_pattern = path_pattern_buf.to_string_lossy().to_string();
                 // TODO: could be simplified by doing a length sort and then a lexical sort of the longest length.
                 glob(&path_pattern)
@@ -137,6 +146,7 @@ impl AtomicStoreLoader {
                     file_path,
                     file_pattern: String::from(file_pattern),
                     file_counter: 0,
+                    initial_run: true,
                     resource_files: HashMap::new(),
                     resources: HashMap::new(),
                 });
@@ -149,15 +159,12 @@ impl AtomicStoreLoader {
                 path: load_path.to_string_lossy().to_string(),
             });
         }
-        let mut file = File::open(load_path).context(StdIoOpenError)?;
-        let mut buf = Vec::new();
-        file.read_to_end(&mut buf).context(StdIoReadError)?;
-        let loaded_state =
-            bincode::deserialize::<AtomicStoreFileContents>(&buf[..]).context(BincodeDeError)?;
+        let loaded_state = load_state(load_path)?;
         Ok(AtomicStoreLoader {
             file_path: storage_path.to_path_buf(),
             file_pattern: String::from(file_pattern),
             file_counter: loaded_state.file_counter,
+            initial_run: false,
             resource_files: loaded_state.resource_files,
             resources: HashMap::new(),
         })
@@ -193,6 +200,7 @@ impl AtomicStoreLoader {
             file_path: storage_path.to_path_buf(),
             file_pattern: String::from(file_pattern),
             file_counter: 0,
+            initial_run: true,
             resource_files: HashMap::new(),
             resources: HashMap::new(),
         })
@@ -211,18 +219,20 @@ impl AtomicStoreLoader {
         if let Entry::Vacant(insert_point) = self.resources.entry(key.to_string()) {
             insert_point.insert(resource);
         } else {
-            return Err(PersistenceError::DuplicateResourceKey { key: key.to_string() });
+            return Err(PersistenceError::DuplicateResourceKey {
+                key: key.to_string(),
+            });
         }
         Ok(())
     }
 }
 
 pub struct AtomicStore {
-    /// because there is only one instance per file for the table of contents, we do not keep it open.
+    // because there is only one instance per file for the table of contents, we do not keep it open.
     file_path: PathBuf,
     file_pattern: String,
     file_counter: u32,
-
+    last_counter: Option<u32>,
     resources: HashMap<String, Arc<RwLock<dyn PersistentStore>>>,
 }
 
@@ -231,7 +241,16 @@ impl AtomicStore {
         Ok(AtomicStore {
             file_path: load_info.file_path,
             file_pattern: load_info.file_pattern,
-            file_counter: load_info.file_counter,
+            file_counter: if load_info.initial_run {
+                load_info.file_counter
+            } else {
+                load_info.file_counter + 1
+            },
+            last_counter: if load_info.initial_run {
+                None
+            } else {
+                Some(load_info.file_counter)
+            },
             resources: load_info.resources,
         })
     }
@@ -239,20 +258,22 @@ impl AtomicStore {
     pub fn commit_version(&mut self) -> Result<(), PersistenceError> {
         let mut collected_locations = HashMap::<String, StorageLocation>::new();
         for (resource_key, resource_store) in self.resources.iter() {
-            let store_access = resource_store.read()?;
-            store_access.wait_for_version()?;
-            if let Some(location_found) = store_access.persisted_location() {
-                collected_locations.insert(resource_key.to_string(), location_found);
+            {
+                let store_access = resource_store.read()?;
+                store_access.wait_for_version()?;
+                if let Some(location_found) = store_access.persisted_location() {
+                    collected_locations.insert(resource_key.to_string(), location_found);
+                }
             }
-            let mut store_access = resource_store.write()?;
-            store_access.start_next_version()?;
+            {
+                let mut store_access = resource_store.write()?;
+                store_access.start_next_version()?;
+            }
         }
+
         let latest_file_path = format_latest_file_path(&self.file_path, &self.file_pattern);
-        let archived_file_path =
-            format_archived_file_path(&self.file_path, &self.file_pattern, self.file_counter);
         let temp_file_path = format_working_file_path(&self.file_path, &self.file_pattern);
         let mut temp_file = File::create(&temp_file_path).context(StdIoOpenError)?;
-        self.file_counter += 1; // counter should match after rename
         let out_state = AtomicStoreFileContents {
             file_counter: self.file_counter,
             resource_files: collected_locations,
@@ -261,9 +282,20 @@ impl AtomicStore {
         temp_file.write_all(&serialized).context(StdIoWriteError)?;
         temp_file.flush().context(StdIoWriteError)?;
         if latest_file_path.exists() {
+            let last_counter = if self.last_counter.is_none() {
+                let loaded_state = load_state(latest_file_path.as_path())?;
+                loaded_state.file_counter
+            } else {
+                self.last_counter.unwrap()
+            };
+            let archived_file_path =
+                format_archived_file_path(&self.file_path, &self.file_pattern, last_counter);
+
             fs::rename(&latest_file_path, &archived_file_path).context(StdIoDirOpsError)?;
         }
+        self.last_counter = Some(self.file_counter);
         fs::rename(&temp_file_path, &latest_file_path).context(StdIoDirOpsError)?;
+        self.file_counter += 1; // advance for the next version
         Ok(())
     }
 }
@@ -273,4 +305,13 @@ pub struct StorageLocation {
     pub file_counter: u32,
     pub store_start: u64,
     pub store_length: u64,
+}
+impl fmt::Display for StorageLocation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "@{}{{{}+{}}}",
+            self.file_counter, self.store_start, self.store_length
+        )
+    }
 }

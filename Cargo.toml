@@ -12,3 +12,6 @@ chrono = "0.4.19"
 glob = "0.3.0"
 serde = { version = "1.0", features = ["derive"] }
 snafu = { version = "0.6.10", features = ["backtraces"] }
+
+[dev-dependencies]
+array-init = "2.0.0"
