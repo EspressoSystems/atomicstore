@@ -25,6 +25,12 @@ pub enum PersistenceError {
         /// The provided path
         path: String,
     },
+    /// Path to file is invalid
+    #[snafu(display("File {:?} does not contain valid data", path))]
+    InvalidFileContents {
+        /// The provided path
+        path: String,
+    },
     /// Failed to write to file
     #[snafu(display("Failed to write resource to file {:?} at {}", filename, position))]
     FailedToWriteToFile {
@@ -38,6 +44,17 @@ pub enum PersistenceError {
     DuplicateResourceKey {
         /// Resource key/file pattern
         key: String,
+    },
+    /// Stored state mismatch with load specification
+    #[snafu(display("Stored state for {} is inconsistent with startup specification", key))]
+    ResourceFormatInconsistent {
+        /// Resource key/file pattern
+        key: String,
+    },
+    /// Unimplemented feature
+    #[snafu(display("Feature not yet implemented: {}", description))]
+    FeatureNotYetImplemented {
+        description: String,
     },
     /// std::io directory operations error
     StdIoDirOpsError { source: std::io::Error },

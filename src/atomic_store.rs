@@ -3,6 +3,8 @@ use crate::error::{
     StdIoOpenError, StdIoReadError, StdIoWriteError,
 };
 
+use crate::storage_location::StorageLocation;
+
 use chrono::Utc;
 use glob::glob;
 use serde::{Deserialize, Serialize};
@@ -10,7 +12,6 @@ use snafu::ResultExt;
 
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::fmt;
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -300,18 +301,3 @@ impl AtomicStore {
     }
 }
 
-#[derive(Debug, Copy, Clone, Default, Serialize, Deserialize)]
-pub struct StorageLocation {
-    pub file_counter: u32,
-    pub store_start: u64,
-    pub store_length: u64,
-}
-impl fmt::Display for StorageLocation {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "@{}{{{}+{}}}",
-            self.file_counter, self.store_start, self.store_length
-        )
-    }
-}

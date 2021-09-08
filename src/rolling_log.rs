@@ -1,8 +1,9 @@
-use crate::atomic_store::{AtomicStoreLoader, PersistentStore, StorageLocation};
+use crate::atomic_store::{AtomicStoreLoader, PersistentStore};
 use crate::error::{
     BincodeDeError, BincodeSerError, PersistenceError, StdIoDirOpsError, StdIoOpenError,
     StdIoReadError, StdIoSeekError, StdIoWriteError,
 };
+use crate::storage_location::StorageLocation;
 use crate::version_sync::PersistedLocationHandler;
 
 use chrono::Utc;
@@ -38,7 +39,7 @@ impl<StoredResource: Serialize + DeserializeOwned> RollingLog<StoredResource> {
     ) -> Result<RollingLog<StoredResource>, PersistenceError> {
         let (write_pos, counter) = match location {
             Some(ref location) => {
-                let append_point = location.store_start + location.store_length;
+                let append_point = location.store_start + location.store_length as u64;
                 if append_point < file_fill_size {
                     (append_point, location.file_counter)
                 } else {
@@ -144,7 +145,7 @@ impl<StoredResource: Serialize + DeserializeOwned> RollingLog<StoredResource> {
             self.open_write_file()?;
         }
         let serialized = bincode::serialize(resource).context(BincodeSerError)?;
-        let resource_length = serialized.len() as u64;
+        let resource_length = serialized.len() as u32;
         self.write_to_file
             .as_ref()
             .unwrap()
@@ -157,7 +158,7 @@ impl<StoredResource: Serialize + DeserializeOwned> RollingLog<StoredResource> {
             store_length: resource_length,
         };
 
-        self.write_pos += resource_length;
+        self.write_pos += resource_length as u64;
         if self.write_pos >= self.file_fill_size {
             self.write_pos = 0;
             self.write_file_counter += 1;
@@ -196,7 +197,7 @@ impl<StoredResource: Serialize + DeserializeOwned> RollingLog<StoredResource> {
         read_file
             .seek(SeekFrom::Start(location.store_start))
             .context(StdIoSeekError)?;
-        let mut reader = read_file.take(location.store_length);
+        let mut reader = read_file.take(location.store_length as u64);
         let mut buffer = Vec::new();
         reader.read_to_end(&mut buffer).context(StdIoReadError)?;
         let resource = bincode::deserialize(&buffer[..]).context(BincodeDeError)?;
