@@ -169,12 +169,14 @@ impl<StoredResource: Serialize + DeserializeOwned> AppendLog<StoredResource> {
     }
 
     // This currenty won't have any effect if called again before the atomic store has processed the prior committed version. A more appropriate behavior might be to block. A version that supports queued writes could enqueue the commit points.
-    pub fn commit_version(&mut self) {
+    pub fn commit_version(&mut self) -> Result<(), PersistenceError> {
         self.persisted_sync.update_version();
+        Ok(())
     }
 
-    pub fn skip_version(&mut self) {
+    pub fn skip_version(&mut self) -> Result<(), PersistenceError> {
         self.persisted_sync.skip_version();
+        Ok(())
     }
 
     // Opens a new handle to the file. Possibly need to revisit in the future?

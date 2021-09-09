@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use std::fmt;
 
-#[derive(Debug, Copy, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StorageLocation {
     pub store_start: u64,
     pub store_length: u32,

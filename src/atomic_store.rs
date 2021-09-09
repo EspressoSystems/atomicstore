@@ -300,4 +300,3 @@ impl AtomicStore {
         Ok(())
     }
 }
-

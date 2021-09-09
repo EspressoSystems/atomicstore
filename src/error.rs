@@ -53,9 +53,7 @@ pub enum PersistenceError {
     },
     /// Unimplemented feature
     #[snafu(display("Feature not yet implemented: {}", description))]
-    FeatureNotYetImplemented {
-        description: String,
-    },
+    FeatureNotYetImplemented { description: String },
     /// std::io directory operations error
     StdIoDirOpsError { source: std::io::Error },
     /// std::io open error

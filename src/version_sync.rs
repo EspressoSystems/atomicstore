@@ -24,6 +24,9 @@ impl PersistedLocationHandler {
     pub(crate) fn last_location(&self) -> &Option<StorageLocation> {
         &self.last_version_location
     }
+    // pub(crate) fn next_location(&self) -> &Option<StorageLocation> {
+    //     &self.next_version_location
+    // }
     pub(crate) fn start_version(&mut self) -> Result<(), PersistenceError> {
         let (mtx, _) = &*self.version_pending;
         let mut version_ready = mtx.lock().unwrap(); // should not be possible without process corruption
