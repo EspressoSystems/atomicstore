@@ -1,0 +1,119 @@
+image: registry.gitlab.com/asuran-rs/containers/rust-sccache-docker:1.54
+
+stages:
+  - lint
+  - check
+  - build
+  - test
+  - doc
+
+variables:
+  CARGO_HOME: $CI_PROJECT_DIR/.cargo-home
+
+# Override git urls to use ci-job-token
+before_script:
+  - git config --global url."https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/".insteadOf git://gitlab.com
+  - git config --global url."https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/".insteadOf ssh://git@gitlab.com
+  - git config --global url."https://dl.cloudsmith.io/${CLOUDSMITH_ENTITLEMENT}/".insteadOf https://dl.cloudsmith.io/basic/
+  - echo ""
+
+lint:fmt:
+  stage: lint
+  tags:
+    - docker
+  script:
+    - cargo fmt -- --check
+  cache:
+    key: "$CI_JOB_NAME-$CI_COMMIT_REF_SLUG"
+    paths:
+      - .cargo-home/
+      - target/
+
+lint:clippy:
+  stage: lint
+  tags:
+    - docker
+  script:
+    - cargo clippy -- -D warnings
+  cache:
+    key: "$CI_JOB_NAME-$CI_COMMIT_REF_SLUG"
+    paths:
+      - .cargo-home/
+      - target/
+  allow_failure: true
+
+lint:audit:
+  stage: lint
+  tags:
+    - docker
+  script:
+    - cargo audit
+  cache:
+    key: "$CI_JOB_NAME-$CI_COMMIT_REF_SLUG"
+    paths:
+      - .cargo-home/
+      - target/
+  allow_failure: true
+  
+check:
+  stage: check
+  tags:
+    - docker
+  script:
+    - cargo check
+  cache:
+    key: "$CI_JOB_NAME-$CI_COMMIT_REF_SLUG"
+    paths:
+      - .cargo-home/
+      - target/
+
+build:
+  stage: build
+  tags:
+    - docker
+  script:
+    - cargo build --release --examples
+  artifacts:
+    paths:
+    expire_in: 2 weeks
+  cache:
+    key: build-cache
+    paths:
+      - .cargo-home/
+      - target/    
+
+test:cargo:
+  stage: test
+  tags:
+    - docker
+  script:
+    - cargo test --release --all-features
+  dependencies: []
+  cache:
+    key: "$CI_JOB_NAME-$CI_COMMIT_REF_SLUG"
+    paths:
+      - .cargo-home/
+      - target/
+  retry: 2
+
+pages:
+  stage: doc
+  tags:
+    - docker
+  script:
+    - cargo doc --no-deps --document-private-items -p atomic_store
+    - cp -R target/doc public
+    - echo '<meta http-equiv="refresh" content="0; url=atomic_store">' > public/index.html
+  artifacts:
+    paths:
+      - public
+  dependencies: []
+  needs: []
+  only:
+    - main
+  cache:
+    key: "$CI_JOB_NAME-$CI_COMMIT_REF_SLUG"
+    paths:
+      - .cargo-home/
+      - target/
+  
