@@ -4,7 +4,7 @@ description = "Persistence with atomic synchronization for a single version of r
 version = "0.0.1"
 authors = ["Nathan F Yospe <nathan@translucence.net>"]
 edition = "2018"
-eeadme = "README.md"
+readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
