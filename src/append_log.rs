@@ -77,7 +77,7 @@ impl<StoredResource: Serialize + DeserializeOwned> AppendLog<StoredResource> {
         let index_pattern = format_index_file_pattern(file_pattern);
         let (write_pos, counter, index_log) = match location {
             Some(ref location) => {
-                let index_log: Arc<RwLock<FixedAppendLog<StorageLocation>>> = FixedAppendLog::open(
+                let index_log: Arc<RwLock<FixedAppendLog<StorageLocation>>> = FixedAppendLog::load(
                     loader,
                     &index_pattern,
                     STORAGE_LOCATION_SERIALIZED_SIZE,
@@ -92,7 +92,7 @@ impl<StoredResource: Serialize + DeserializeOwned> AppendLog<StoredResource> {
             }
             None => {
                 let index_log: Arc<RwLock<FixedAppendLog<StorageLocation>>> =
-                    FixedAppendLog::create_new(
+                    FixedAppendLog::create(
                         loader,
                         &index_pattern,
                         STORAGE_LOCATION_SERIALIZED_SIZE,
@@ -115,7 +115,7 @@ impl<StoredResource: Serialize + DeserializeOwned> AppendLog<StoredResource> {
         })
     }
 
-    pub fn open(
+    pub fn load(
         loader: &mut AtomicStoreLoader,
         file_pattern: &str,
         file_fill_size: u64,
@@ -132,7 +132,7 @@ impl<StoredResource: Serialize + DeserializeOwned> AppendLog<StoredResource> {
         loader.add_resource_handle(file_pattern, created.clone())?;
         Ok(created)
     }
-    pub fn create_new(
+    pub fn create(
         loader: &mut AtomicStoreLoader,
         file_pattern: &str,
         file_fill_size: u64,

@@ -25,7 +25,7 @@ checksum = "6945cc5422176fc5e602e590c2878d2c2acd9a4fe20a4baa7c28022521698ec6"
 
 [[package]]
 name = "atomic_store"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "array-init",
  "bincode",

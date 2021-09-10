@@ -60,7 +60,7 @@ impl<StoredResource: Serialize + DeserializeOwned> RollingLog<StoredResource> {
         })
     }
 
-    pub fn open(
+    pub fn load(
         loader: &mut AtomicStoreLoader,
         file_pattern: &str,
         file_fill_size: u64,
@@ -74,7 +74,7 @@ impl<StoredResource: Serialize + DeserializeOwned> RollingLog<StoredResource> {
         loader.add_resource_handle(file_pattern, created.clone())?;
         Ok(created)
     }
-    pub fn create_new(
+    pub fn create(
         loader: &mut AtomicStoreLoader,
         file_pattern: &str,
         file_fill_size: u64,

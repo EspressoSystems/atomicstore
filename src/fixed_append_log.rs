@@ -175,7 +175,7 @@ impl<StoredResource: Serialize + DeserializeOwned> FixedAppendLog<StoredResource
             phantom: PhantomData,
         })
     }
-    pub fn open(
+    pub fn load(
         loader: &mut AtomicStoreLoader,
         file_pattern: &str,
         resource_size: u64,
@@ -191,7 +191,7 @@ impl<StoredResource: Serialize + DeserializeOwned> FixedAppendLog<StoredResource
         loader.add_resource_handle(file_pattern, created.clone())?;
         Ok(created)
     }
-    pub fn create_new(
+    pub fn create(
         loader: &mut AtomicStoreLoader,
         file_pattern: &str,
         resource_size: u64,
