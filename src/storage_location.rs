@@ -18,3 +18,5 @@ impl fmt::Display for StorageLocation {
         )
     }
 }
+
+pub const STORAGE_LOCATION_SERIALIZED_SIZE: u64 = 16;

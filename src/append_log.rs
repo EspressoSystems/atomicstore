@@ -3,7 +3,9 @@ use crate::error::{
     BincodeDeError, BincodeSerError, PersistenceError, StdIoDirOpsError, StdIoOpenError,
     StdIoReadError, StdIoSeekError, StdIoWriteError,
 };
-use crate::storage_location::StorageLocation;
+use crate::fixed_append_log;
+use crate::fixed_append_log::FixedAppendLog;
+use crate::storage_location::{StorageLocation, STORAGE_LOCATION_SERIALIZED_SIZE};
 use crate::version_sync::PersistedLocationHandler;
 
 use chrono::Utc;
@@ -27,27 +29,79 @@ pub struct AppendLog<StoredResource: 'static> {
     write_to_file: Option<File>,
     write_pos: u64,
     write_file_counter: u32,
+    index_log: Arc<RwLock<FixedAppendLog<StorageLocation>>>,
     phantom: PhantomData<&'static StoredResource>,
+}
+
+pub struct Iter<StoredResource: 'static> {
+    inner_iter: fixed_append_log::Iter<StorageLocation>,
+    file_path: PathBuf,
+    file_pattern: String,
+    read_from_file: Option<File>,
+    read_from_counter: u32,
+    phantom: PhantomData<&'static StoredResource>,
+}
+
+fn format_index_file_pattern(file_pattern: &str) -> String {
+    format!("{}_index", file_pattern)
+}
+
+fn format_nth_file_path(root_path: &Path, file_pattern: &str, file_count: u32) -> PathBuf {
+    let mut buf = root_path.to_path_buf();
+    buf.push(format!(".{}_{}", file_pattern, file_count));
+    buf
+}
+
+fn load_from_file<StoredResource: Serialize + DeserializeOwned>(
+    read_file: &mut File,
+    location: &StorageLocation,
+) -> Result<StoredResource, PersistenceError> {
+    read_file
+        .seek(SeekFrom::Start(location.store_start))
+        .context(StdIoSeekError)?;
+    let mut reader = read_file.take(location.store_length as u64);
+    let mut buffer = Vec::new();
+    reader.read_to_end(&mut buffer).context(StdIoReadError)?;
+    let resource = bincode::deserialize(&buffer[..]).context(BincodeDeError)?;
+    Ok(resource)
 }
 
 impl<StoredResource: Serialize + DeserializeOwned> AppendLog<StoredResource> {
     pub(crate) fn open_impl(
+        loader: &mut AtomicStoreLoader,
         location: Option<StorageLocation>,
         file_path: &Path,
         file_pattern: &str,
         file_fill_size: u64,
     ) -> Result<AppendLog<StoredResource>, PersistenceError> {
-        let (write_pos, counter) = match location {
+        let index_pattern = format_index_file_pattern(file_pattern);
+        let (write_pos, counter, index_log) = match location {
             Some(ref location) => {
+                let index_log: Arc<RwLock<FixedAppendLog<StorageLocation>>> = FixedAppendLog::open(
+                    loader,
+                    &index_pattern,
+                    STORAGE_LOCATION_SERIALIZED_SIZE,
+                    256,
+                )?;
                 let append_point = location.store_start + location.store_length as u64;
                 if append_point < file_fill_size {
-                    (append_point, location.file_counter)
+                    (append_point, location.file_counter, index_log)
                 } else {
-                    (0, location.file_counter + 1)
+                    (0, location.file_counter + 1, index_log)
                 }
             }
-            None => (0, 0),
+            None => {
+                let index_log: Arc<RwLock<FixedAppendLog<StorageLocation>>> =
+                    FixedAppendLog::create_new(
+                        loader,
+                        &index_pattern,
+                        STORAGE_LOCATION_SERIALIZED_SIZE,
+                        256,
+                    )?;
+                (0, 0, index_log)
+            }
         };
+
         Ok(AppendLog {
             persisted_sync: PersistedLocationHandler::new(location),
             file_path: file_path.to_path_buf(),
@@ -56,6 +110,7 @@ impl<StoredResource: Serialize + DeserializeOwned> AppendLog<StoredResource> {
             write_to_file: None,
             write_pos,
             write_file_counter: counter,
+            index_log,
             phantom: PhantomData,
         })
     }
@@ -65,9 +120,12 @@ impl<StoredResource: Serialize + DeserializeOwned> AppendLog<StoredResource> {
         file_pattern: &str,
         file_fill_size: u64,
     ) -> Result<Arc<RwLock<AppendLog<StoredResource>>>, PersistenceError> {
+        let resource = loader.look_up_resource(file_pattern);
+        let path = loader.persistence_path().to_path_buf();
         let created = Arc::new(RwLock::new(Self::open_impl(
-            loader.look_up_resource(file_pattern),
-            loader.persistence_path(),
+            loader,
+            resource,
+            &path,
             file_pattern,
             file_fill_size,
         )?));
@@ -79,9 +137,11 @@ impl<StoredResource: Serialize + DeserializeOwned> AppendLog<StoredResource> {
         file_pattern: &str,
         file_fill_size: u64,
     ) -> Result<Arc<RwLock<AppendLog<StoredResource>>>, PersistenceError> {
+        let path = loader.persistence_path().to_path_buf();
         let created = Arc::new(RwLock::new(Self::open_impl(
+            loader,
             None,
-            loader.persistence_path(),
+            &path,
             file_pattern,
             file_fill_size,
         )?));
@@ -90,9 +150,8 @@ impl<StoredResource: Serialize + DeserializeOwned> AppendLog<StoredResource> {
     }
 
     fn open_write_file(&mut self) -> Result<(), PersistenceError> {
-        let mut out_file_path_buf = self.file_path.clone();
-        out_file_path_buf.push(format!("{}_{}", self.file_pattern, self.write_file_counter));
-        let out_file_path = out_file_path_buf.as_path();
+        let out_file_path =
+            format_nth_file_path(&self.file_path, &self.file_pattern, self.write_file_counter);
 
         if out_file_path.exists() {
             if !out_file_path.is_file() {
@@ -101,7 +160,7 @@ impl<StoredResource: Serialize + DeserializeOwned> AppendLog<StoredResource> {
                 });
             }
 
-            if let Ok(metadata) = fs::metadata(out_file_path) {
+            if let Ok(metadata) = fs::metadata(&out_file_path) {
                 if metadata.len() > self.write_pos {
                     let mut backup_path = self.file_path.clone();
                     backup_path.push(format!(
@@ -111,10 +170,9 @@ impl<StoredResource: Serialize + DeserializeOwned> AppendLog<StoredResource> {
                         Utc::now().timestamp()
                     ));
                     if self.write_pos > 0 {
-                        fs::copy(out_file_path, backup_path.as_path()).context(StdIoDirOpsError)?;
+                        fs::copy(&out_file_path, &backup_path).context(StdIoDirOpsError)?;
                     } else {
-                        fs::rename(out_file_path, backup_path.as_path())
-                            .context(StdIoDirOpsError)?;
+                        fs::rename(&out_file_path, &backup_path).context(StdIoDirOpsError)?;
                     }
                 }
             }
@@ -164,17 +222,20 @@ impl<StoredResource: Serialize + DeserializeOwned> AppendLog<StoredResource> {
             self.write_file_counter += 1;
             self.write_to_file = None;
         }
+        self.index_log.write()?.store_resource(&location)?;
         self.persisted_sync.advance_next(Some(location));
         Ok(location)
     }
 
     // This currenty won't have any effect if called again before the atomic store has processed the prior committed version. A more appropriate behavior might be to block. A version that supports queued writes could enqueue the commit points.
     pub fn commit_version(&mut self) -> Result<(), PersistenceError> {
+        self.index_log.write()?.commit_version()?;
         self.persisted_sync.update_version();
         Ok(())
     }
 
     pub fn skip_version(&mut self) -> Result<(), PersistenceError> {
+        self.index_log.write()?.skip_version()?;
         self.persisted_sync.skip_version();
         Ok(())
     }
@@ -193,17 +254,65 @@ impl<StoredResource: Serialize + DeserializeOwned> AppendLog<StoredResource> {
         &self,
         location: &StorageLocation,
     ) -> Result<StoredResource, PersistenceError> {
-        let mut read_file_path_buf = self.file_path.clone();
-        read_file_path_buf.push(format!("{}_{}", self.file_pattern, location.file_counter));
-        let mut read_file = File::open(read_file_path_buf.as_path()).context(StdIoOpenError)?;
-        read_file
-            .seek(SeekFrom::Start(location.store_start))
-            .context(StdIoSeekError)?;
-        let mut reader = read_file.take(location.store_length as u64);
-        let mut buffer = Vec::new();
-        reader.read_to_end(&mut buffer).context(StdIoReadError)?;
-        let resource = bincode::deserialize(&buffer[..]).context(BincodeDeError)?;
-        Ok(resource)
+        let read_file_path =
+            format_nth_file_path(&self.file_path, &self.file_pattern, location.file_counter);
+        let mut read_file = File::open(read_file_path.as_path()).context(StdIoOpenError)?;
+        load_from_file(&mut read_file, location)
+    }
+
+    pub fn iter(&self) -> Iter<StoredResource> {
+        Iter {
+            inner_iter: self.index_log.read().unwrap().iter(),
+            file_path: self.file_path.clone(),
+            file_pattern: self.file_pattern.clone(),
+            read_from_file: None,
+            read_from_counter: 0,
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<StoredResource: Serialize + DeserializeOwned> Iter<StoredResource> {
+    fn helper(&mut self, location: &StorageLocation) -> Result<StoredResource, PersistenceError> {
+        if location.file_counter != self.read_from_counter {
+            self.read_from_file = None;
+        }
+        if self.read_from_file.is_none() {
+            self.read_from_counter = location.file_counter;
+            let read_file_path =
+                format_nth_file_path(&self.file_path, &self.file_pattern, location.file_counter);
+            self.read_from_file =
+                Some(File::open(read_file_path.as_path()).context(StdIoOpenError)?);
+        }
+        load_from_file(&mut self.read_from_file.as_mut().unwrap(), location)
+    }
+}
+
+impl<StoredResource: Serialize + DeserializeOwned> Iterator for Iter<StoredResource> {
+    type Item = Result<StoredResource, PersistenceError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        Some(
+            self.inner_iter
+                .next()?
+                .map_or_else(Err, |loc| self.helper(&loc)),
+        )
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner_iter.size_hint()
+    }
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        Some(
+            self.inner_iter
+                .nth(n)?
+                .map_or_else(Err, |loc| self.helper(&loc)),
+        )
+    }
+}
+
+impl<StoredResource: Serialize + DeserializeOwned> ExactSizeIterator for Iter<StoredResource> {
+    fn len(&self) -> usize {
+        self.inner_iter.len()
     }
 }
 
