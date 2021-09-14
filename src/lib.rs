@@ -6,10 +6,10 @@ pub mod rolling_log;
 pub mod storage_location;
 mod version_sync;
 
-pub use crate::atomic_store::PersistentStore;
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_write_append() {}
-}
+pub use crate::{
+    append_log::AppendLog,
+    atomic_store::{AtomicStore, AtomicStoreLoader, PersistentStore},
+    error::PersistenceError,
+    fixed_append_log::FixedAppendLog,
+    rolling_log::RollingLog,
+};

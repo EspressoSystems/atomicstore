@@ -23,25 +23,24 @@ use std::sync::{Arc, RwLock};
 /// Resources that store as a sequence may or may not load the entire sequence into memory,
 /// and may or may not cache frequently accessed portions
 pub trait PersistentStore {
-    /// the resource key should be the file pattern, and the loader will enforce uniqueness
+    /// should be the file pattern; `AtomicStoreLoader` enforces uniqueness
     fn resource_key(&self) -> &str;
 
-    /// location of stored resource for last confirmed atomic update
-    /// set when AtomicStore initiates load,
-    /// updated when version commits, before notifyting wait_for_version.
+    /// location of last confirmed atomic update;
+    /// set by AtomicStoreLoader, updated when version commits
     fn persisted_location(&self) -> Option<StorageLocation>;
 
-    /// blocks until resource store file write is complete for next version
+    /// called by `AtomicStore::commit_version()`, blocks until resource store file write is complete.
     fn wait_for_version(&self) -> Result<(), PersistenceError>;
-    /// resets blocking for next call to wait_for_version
-    /// ambitious stores could, in theory, queue up versions and immediately update persisted_location and re-signal.
+
+    /// called by `AtomicStore::commit_version()`, resets blocking for next version
     fn start_next_version(&mut self) -> Result<(), PersistenceError>;
 }
 
 /// This exists to provide a common type for serializing and deserializing of the atomic store
 /// table of contents, so the prior state can be pre-loaded without sacrificing single point of initialization.
 #[derive(Serialize, Deserialize)]
-pub struct AtomicStoreFileContents {
+struct AtomicStoreFileContents {
     pub file_counter: u32,
     pub resource_files: HashMap<String, StorageLocation>,
 }
@@ -52,15 +51,6 @@ fn load_state(path: &Path) -> Result<AtomicStoreFileContents, PersistenceError> 
     file.read_to_end(&mut buf).context(StdIoReadError)?;
     bincode::deserialize::<AtomicStoreFileContents>(&buf[..]).context(BincodeDeError)
 }
-
-// fn extract_count(file_pattern: &str, path_result: glob::GlobResult) -> Option<(u32, PathBuf)> {
-//     if let Ok(path) = path_result {
-//         let suffix = path.file_name()?.to_str()?.strip_prefix(file_pattern)?.strip_prefix("_archived_")?;
-//         let counter = u32::from_str(suffix).ok()?;
-//         return Some((counter, path));
-//     }
-//     None
-// }
 
 fn extract_count(file_pattern: &str, path_result: &glob::GlobResult) -> Option<u32> {
     if let Ok(path) = path_result {
@@ -92,9 +82,7 @@ fn format_working_file_path(root_path: &Path, file_pattern: &str) -> PathBuf {
     buf
 }
 
-/// The central index of an atomic version of truth across multiple persisted data structures
-/// This unit allows a load to be confident that it is consistent with a single point in time
-/// without persistant store operations blocking the entire system from beginning to end
+/// Enables each managed PersistentStore instance to initialize before creating the AtomicStore.
 pub struct AtomicStoreLoader {
     file_path: PathBuf,
     file_pattern: String,
@@ -106,7 +94,8 @@ pub struct AtomicStoreLoader {
 }
 
 impl AtomicStoreLoader {
-    pub fn load_from_stored(
+    /// Attempt to load the specified atomic state in the specified directory; if no files exist, will initialize a new state
+    pub fn load(
         storage_path: &Path,
         file_pattern: &str,
     ) -> Result<AtomicStoreLoader, PersistenceError> {
@@ -170,7 +159,8 @@ impl AtomicStoreLoader {
             resources: HashMap::new(),
         })
     }
-    pub fn create_new(
+    /// Attempt to initialize a new atomic state in the specified directory; if files exist, will back up existing directory before creating
+    pub fn create(
         storage_path: &Path,
         file_pattern: &str,
     ) -> Result<AtomicStoreLoader, PersistenceError> {
@@ -228,6 +218,8 @@ impl AtomicStoreLoader {
     }
 }
 
+/// The central index of an atomic version of truth across multiple persisted data structures;
+/// Guarantees that all managed resources can be loaded in a consistent state across an entire logical entity.
 pub struct AtomicStore {
     // because there is only one instance per file for the table of contents, we do not keep it open.
     file_path: PathBuf,
@@ -238,7 +230,7 @@ pub struct AtomicStore {
 }
 
 impl AtomicStore {
-    pub fn load_store(load_info: AtomicStoreLoader) -> Result<AtomicStore, PersistenceError> {
+    pub fn open(load_info: AtomicStoreLoader) -> Result<AtomicStore, PersistenceError> {
         Ok(AtomicStore {
             file_path: load_info.file_path,
             file_pattern: load_info.file_pattern,

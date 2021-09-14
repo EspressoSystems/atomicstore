@@ -55,12 +55,12 @@ fn single_threaded_create_and_populate() -> Result<(), PersistenceError> {
     test_path.push("testing_tmp");
 
     let mut store_loader =
-        AtomicStoreLoader::create_new(test_path.as_path(), "persisted_things_store")?;
-    let persisted_a = AppendLog::<ThingA>::create_new(&mut store_loader, "a_store", 1024)?;
-    let persisted_b = AppendLog::<ThingB>::create_new(&mut store_loader, "b_store", 16)?;
-    let persisted_c = RollingLog::<ThingC>::create_new(&mut store_loader, "c_store", 16)?;
+        AtomicStoreLoader::create(test_path.as_path(), "persisted_things_store")?;
+    let persisted_a = AppendLog::<ThingA>::create(&mut store_loader, "a_store", 1024)?;
+    let persisted_b = AppendLog::<ThingB>::create(&mut store_loader, "b_store", 16)?;
+    let persisted_c = RollingLog::<ThingC>::create(&mut store_loader, "c_store", 16)?;
 
-    let mut atomic_store = AtomicStore::load_store(store_loader)?;
+    let mut atomic_store = AtomicStore::open(store_loader)?;
 
     // enough to flow to a second file
     let first_array_of_a: [ThingA; 100] = array_init::array_init(|i| ThingA {
@@ -80,7 +80,7 @@ fn single_threaded_create_and_populate() -> Result<(), PersistenceError> {
             "Stored in files a_store_*, at locations {:?}",
             first_a_locations
         );
-        a_writer.commit_version();
+        a_writer.commit_version()?;
     }
 
     let first_array_of_b: [ThingB; 10] = array_init::array_init(|i| ThingB {
@@ -100,7 +100,7 @@ fn single_threaded_create_and_populate() -> Result<(), PersistenceError> {
             "Stored in files b_store_*, at locations {:?}",
             first_b_locations
         );
-        b_writer.commit_version();
+        b_writer.commit_version()?;
     }
 
     let first_c = ThingC { c1: 42, c2: 2021 };
@@ -130,7 +130,7 @@ fn single_threaded_create_and_populate() -> Result<(), PersistenceError> {
             .iter()
             .map(|a| a_writer.store_resource(&a).unwrap())
             .collect();
-        a_writer.commit_version();
+        a_writer.commit_version()?;
     }
     let second_array_of_b: [ThingB; 10] = array_init::array_init(|i| ThingB {
         b1: i as i64 * 5,
@@ -143,7 +143,7 @@ fn single_threaded_create_and_populate() -> Result<(), PersistenceError> {
             .iter()
             .map(|b| b_writer.store_resource(&b).unwrap())
             .collect();
-        b_writer.commit_version();
+        b_writer.commit_version()?;
     }
     let second_c = ThingC { c1: 99, c2: 1492 };
     {
@@ -165,7 +165,7 @@ fn single_threaded_create_and_populate() -> Result<(), PersistenceError> {
             .iter()
             .map(|a| a_writer.store_resource(&a).unwrap())
             .collect();
-        a_writer.commit_version();
+        a_writer.commit_version()?;
     }
 
     let third_array_of_b: [ThingB; 10] = array_init::array_init(|i| ThingB {
@@ -199,13 +199,12 @@ fn single_threaded_load_from_files() -> Result<(), PersistenceError> {
         env::current_dir().map_err(|e| PersistenceError::StdIoDirOpsError { source: e })?;
     test_path.push("testing_tmp");
 
-    let mut store_loader =
-        AtomicStoreLoader::load_from_stored(test_path.as_path(), "persisted_things_store")?;
-    let persisted_a = AppendLog::<ThingA>::open(&mut store_loader, "a_store", 1024)?;
-    let persisted_b = AppendLog::<ThingB>::open(&mut store_loader, "b_store", 16)?;
-    let persisted_c = RollingLog::<ThingC>::open(&mut store_loader, "c_store", 16)?;
+    let mut store_loader = AtomicStoreLoader::load(test_path.as_path(), "persisted_things_store")?;
+    let persisted_a = AppendLog::<ThingA>::load(&mut store_loader, "a_store", 1024)?;
+    let persisted_b = AppendLog::<ThingB>::load(&mut store_loader, "b_store", 16)?;
+    let persisted_c = RollingLog::<ThingC>::load(&mut store_loader, "c_store", 16)?;
 
-    let mut atomic_store = AtomicStore::load_store(store_loader)?;
+    let mut atomic_store = AtomicStore::open(store_loader)?;
 
     let third_array_of_a: [ThingA; 100] = array_init::array_init(|i| ThingA {
         a1: i as i64 + 200,
@@ -218,7 +217,7 @@ fn single_threaded_load_from_files() -> Result<(), PersistenceError> {
             .iter()
             .map(|a| a_writer.store_resource(&a).unwrap())
             .collect();
-        a_writer.commit_version();
+        a_writer.commit_version()?;
     }
 
     let third_array_of_b: [ThingB; 10] = array_init::array_init(|i| ThingB {
@@ -232,7 +231,7 @@ fn single_threaded_load_from_files() -> Result<(), PersistenceError> {
             .iter()
             .map(|b| b_writer.store_resource(&b).unwrap())
             .collect();
-        b_writer.commit_version();
+        b_writer.commit_version()?;
     }
 
     let third_c = ThingC { c1: 17, c2: 113 };
