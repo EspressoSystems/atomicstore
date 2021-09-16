@@ -4,7 +4,7 @@ pub mod error;
 pub mod fixed_append_log;
 pub mod rolling_log;
 pub mod storage_location;
-mod version_sync;
+pub mod version_sync;
 
 pub use crate::{
     append_log::AppendLog,
