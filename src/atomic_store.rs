@@ -95,10 +95,7 @@ pub struct AtomicStoreLoader {
 
 impl AtomicStoreLoader {
     /// Attempt to load the specified atomic state in the specified directory; if no files exist, will initialize a new state
-    pub fn load(
-        storage_path: &Path,
-        file_pattern: &str,
-    ) -> Result<AtomicStoreLoader> {
+    pub fn load(storage_path: &Path, file_pattern: &str) -> Result<AtomicStoreLoader> {
         let file_path = storage_path.to_path_buf();
         let load_path_buf = format_latest_file_path(storage_path, file_pattern);
         let alt_path_buf;
@@ -160,10 +157,7 @@ impl AtomicStoreLoader {
         })
     }
     /// Attempt to initialize a new atomic state in the specified directory; if files exist, will back up existing directory before creating
-    pub fn create(
-        storage_path: &Path,
-        file_pattern: &str,
-    ) -> Result<AtomicStoreLoader> {
+    pub fn create(storage_path: &Path, file_pattern: &str) -> Result<AtomicStoreLoader> {
         if !storage_path.exists() {
             fs::create_dir_all(storage_path).context(StdIoDirOpsError)?;
         } else if format_archived_file_path(storage_path, file_pattern, 0).exists()

@@ -1,7 +1,7 @@
 use crate::atomic_store::{AtomicStoreLoader, PersistentStore};
 use crate::error::{
-    PersistenceError, StdIoDirOpsError, StdIoOpenError,
-    StdIoReadError, StdIoSeekError, StdIoWriteError,
+    PersistenceError, StdIoDirOpsError, StdIoOpenError, StdIoReadError, StdIoSeekError,
+    StdIoWriteError,
 };
 use crate::load_store::LoadStore;
 use crate::storage_location::StorageLocation;
@@ -136,10 +136,7 @@ impl<TypeStore: 'static + LoadStore + Default> RollingLog<TypeStore> {
 
     // Writes out a resource instance; does not update the commit position, but in this version, does advance the pending commit position.
     // In the future, we may support a queue of commit points, or even entire sequences of pre-written alternative future versions (for chained consensus), which would require a more complex interface.
-    pub fn store_resource(
-        &mut self,
-        resource: &TypeStore::ParamType,
-    ) -> Result<StorageLocation> {
+    pub fn store_resource(&mut self, resource: &TypeStore::ParamType) -> Result<StorageLocation> {
         if self.write_to_file.is_none() {
             self.open_write_file()?;
         }
@@ -186,10 +183,7 @@ impl<TypeStore: 'static + LoadStore + Default> RollingLog<TypeStore> {
             })
         }
     }
-    pub fn load_specified(
-        &self,
-        location: &StorageLocation,
-    ) -> Result<TypeStore::ParamType> {
+    pub fn load_specified(&self, location: &StorageLocation) -> Result<TypeStore::ParamType> {
         let mut read_file_path_buf = self.file_path.clone();
         read_file_path_buf.push(format!("{}_{}", self.file_pattern, location.file_counter));
         let mut read_file = File::open(read_file_path_buf.as_path()).context(StdIoOpenError)?;

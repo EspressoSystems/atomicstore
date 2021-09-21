@@ -2,10 +2,10 @@ pub mod append_log;
 pub mod atomic_store;
 pub mod error;
 pub mod fixed_append_log;
+pub mod load_store;
 pub mod rolling_log;
 pub mod storage_location;
 pub mod version_sync;
-pub mod load_store;
 
 pub use crate::{
     append_log::AppendLog,

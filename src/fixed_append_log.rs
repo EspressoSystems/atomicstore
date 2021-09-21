@@ -279,10 +279,7 @@ impl<TypeStore: 'static + LoadStore + Default> FixedAppendLog<TypeStore> {
 
     // Writes out a resource instance; does not update the commit position, but in this version, does advance the pending commit position.
     // In the future, we may support a queue of commit points, or even entire sequences of pre-written alternative future versions (for chained consensus), which would require a more complex interface.
-    pub fn store_resource(
-        &mut self,
-        resource: &TypeStore::ParamType,
-    ) -> Result<StorageLocation> {
+    pub fn store_resource(&mut self, resource: &TypeStore::ParamType) -> Result<StorageLocation> {
         if self.write_to_file.is_none() {
             self.open_write_file()?;
         }
@@ -353,10 +350,7 @@ impl<TypeStore: 'static + LoadStore + Default> FixedAppendLog<TypeStore> {
         }
     }
 
-    pub fn load_specified(
-        &self,
-        location: &StorageLocation,
-    ) -> Result<TypeStore::ParamType> {
+    pub fn load_specified(&self, location: &StorageLocation) -> Result<TypeStore::ParamType> {
         let index = self.location_to_index(location)?;
         self.load_at(index)
     }
@@ -389,7 +383,7 @@ impl<TypeStore: 'static + LoadStore + Default> FixedAppendLog<TypeStore> {
             read_from_file: None,
             from_index: 0,
             end_index: self.commit_index + 1,
-            _type_store: TypeStore::default()
+            _type_store: TypeStore::default(),
         }
     }
 }

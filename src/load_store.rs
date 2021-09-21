@@ -1,11 +1,9 @@
-use crate::error::{
-    BincodeDeError, BincodeSerError, PersistenceError
-};
-use crate::Result;
+use crate::error::{BincodeDeError, BincodeSerError, PersistenceError};
 use crate::storage_location::StorageLocation;
+use crate::Result;
 
-use serde::{de::DeserializeOwned, Serialize};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use serde::{de::DeserializeOwned, Serialize};
 use snafu::ResultExt;
 
 use std::marker::PhantomData;
@@ -14,7 +12,7 @@ pub trait LoadStore: Default {
     type ParamType;
 
     fn load(stream: &[u8]) -> Result<Self::ParamType>;
-    fn store(param: &Self::ParamType)  -> Result<Vec<u8>>;
+    fn store(param: &Self::ParamType) -> Result<Vec<u8>>;
 }
 
 #[derive(Debug)]
@@ -50,11 +48,13 @@ impl<ParamType: CanonicalSerialize + CanonicalDeserialize> LoadStore for ArkLoad
     type ParamType = ParamType;
 
     fn load(stream: &[u8]) -> Result<Self::ParamType> {
-        Self::ParamType::deserialize(stream).map_err(|err| PersistenceError::ArkDeError{ err })
+        Self::ParamType::deserialize(stream).map_err(|err| PersistenceError::ArkDeError { err })
     }
     fn store(param: &Self::ParamType) -> Result<Vec<u8>> {
         let mut ser_bytes: Vec<u8> = Vec::new();
-        param.serialize(&mut ser_bytes).map_err(|err| PersistenceError::ArkSerError{ err })?;
+        param
+            .serialize(&mut ser_bytes)
+            .map_err(|err| PersistenceError::ArkSerError { err })?;
         Ok(ser_bytes)
     }
 }

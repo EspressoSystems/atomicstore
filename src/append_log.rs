@@ -1,7 +1,7 @@
 use crate::atomic_store::{AtomicStoreLoader, PersistentStore};
 use crate::error::{
-    PersistenceError, StdIoDirOpsError, StdIoOpenError,
-    StdIoReadError, StdIoSeekError, StdIoWriteError,
+    PersistenceError, StdIoDirOpsError, StdIoOpenError, StdIoReadError, StdIoSeekError,
+    StdIoWriteError,
 };
 use crate::fixed_append_log;
 use crate::fixed_append_log::FixedAppendLog;
@@ -75,12 +75,13 @@ impl<TypeStore: 'static + LoadStore + Default> AppendLog<TypeStore> {
         let index_pattern = format_index_file_pattern(file_pattern);
         let (write_pos, counter, index_log) = match location {
             Some(ref location) => {
-                let index_log: Arc<RwLock<FixedAppendLog<StorageLocationLoadStore>>> = FixedAppendLog::load(
-                    loader,
-                    &index_pattern,
-                    STORAGE_LOCATION_SERIALIZED_SIZE,
-                    256,
-                )?;
+                let index_log: Arc<RwLock<FixedAppendLog<StorageLocationLoadStore>>> =
+                    FixedAppendLog::load(
+                        loader,
+                        &index_pattern,
+                        STORAGE_LOCATION_SERIALIZED_SIZE,
+                        256,
+                    )?;
                 let append_point = location.store_start + location.store_length as u64;
                 if append_point < file_fill_size {
                     (append_point, location.file_counter, index_log)
@@ -193,10 +194,7 @@ impl<TypeStore: 'static + LoadStore + Default> AppendLog<TypeStore> {
 
     // Writes out a resource instance; does not update the commit position, but in this version, does advance the pending commit position.
     // In the future, we may support a queue of commit points, or even entire sequences of pre-written alternative future versions (for chained consensus), which would require a more complex interface.
-    pub fn store_resource(
-        &mut self,
-        resource: &TypeStore::ParamType,
-    ) -> Result<StorageLocation> {
+    pub fn store_resource(&mut self, resource: &TypeStore::ParamType) -> Result<StorageLocation> {
         if self.write_to_file.is_none() {
             self.open_write_file()?;
         }
@@ -248,10 +246,7 @@ impl<TypeStore: 'static + LoadStore + Default> AppendLog<TypeStore> {
             })
         }
     }
-    pub fn load_specified(
-        &self,
-        location: &StorageLocation,
-    ) -> Result<TypeStore::ParamType> {
+    pub fn load_specified(&self, location: &StorageLocation) -> Result<TypeStore::ParamType> {
         let read_file_path =
             format_nth_file_path(&self.file_path, &self.file_pattern, location.file_counter);
         let mut read_file = File::open(read_file_path.as_path()).context(StdIoOpenError)?;
