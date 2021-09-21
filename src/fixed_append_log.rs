@@ -15,6 +15,7 @@ use snafu::ResultExt;
 use std::fs;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
@@ -102,19 +103,19 @@ fn compute_location(from_index: &IndexContents) -> StorageLocation {
 
 /// For now, this is implemented with a direct copy from memory to file, using native order, but the order is recorded in a header, and can be used to support transfer in the future.
 #[derive(Debug)]
-pub struct FixedAppendLog<TypeStore: LoadStore> {
+pub struct FixedAppendLog<ResourceType: LoadStore> {
     persisted_sync: Arc<RwLock<VersionSyncHandle>>,
     file_path: PathBuf,
     file_pattern: String,
-    resource_size: u64, // must match TypeStore::ParamType serialized size.
-    file_size: u64, // number of TypeStore::ParamType serializations per file; must not change, will check on load.
+    resource_size: u64, // must match ResourceType::ParamType serialized size.
+    file_size: u64, // number of ResourceType::ParamType serializations per file; must not change, will check on load.
     write_to_file: Option<File>,
     commit_index: u64,
     write_index: u64, // other indexes can be derived.
-    _type_store: TypeStore,
+    phantom: PhantomData<ResourceType>,
 }
 
-pub struct Iter<TypeStore: LoadStore> {
+pub struct Iter<ResourceType: LoadStore> {
     file_path: PathBuf,
     file_pattern: String,
     resource_size: u64,
@@ -122,17 +123,17 @@ pub struct Iter<TypeStore: LoadStore> {
     read_from_file: Option<File>,
     from_index: u64,
     end_index: u64,
-    _type_store: TypeStore,
+    phantom: PhantomData<ResourceType>,
 }
 
-impl<TypeStore: LoadStore + Default> FixedAppendLog<TypeStore> {
+impl<ResourceType: LoadStore + Default> FixedAppendLog<ResourceType> {
     pub(crate) fn open_impl(
         location: Option<StorageLocation>,
         file_path: &Path,
         file_pattern: &str,
         resource_size: u64,
         file_size: u64,
-    ) -> Result<FixedAppendLog<TypeStore>> {
+    ) -> Result<FixedAppendLog<ResourceType>> {
         let index_file_path = format_index_file_path(file_path, file_pattern);
         let backup_file_path = format_backup_index_file_path(file_path, file_pattern);
         let commit_index;
@@ -172,7 +173,7 @@ impl<TypeStore: LoadStore + Default> FixedAppendLog<TypeStore> {
             write_to_file: None,
             commit_index,
             write_index,
-            _type_store: TypeStore::default(),
+            phantom: PhantomData,
         })
     }
     pub fn load(
@@ -180,7 +181,7 @@ impl<TypeStore: LoadStore + Default> FixedAppendLog<TypeStore> {
         file_pattern: &str,
         resource_size: u64,
         file_size: u64,
-    ) -> Result<FixedAppendLog<TypeStore>> {
+    ) -> Result<FixedAppendLog<ResourceType>> {
         let created = Self::open_impl(
             loader.look_up_resource(file_pattern),
             loader.persistence_path(),
@@ -196,7 +197,7 @@ impl<TypeStore: LoadStore + Default> FixedAppendLog<TypeStore> {
         file_pattern: &str,
         resource_size: u64,
         file_size: u64,
-    ) -> Result<FixedAppendLog<TypeStore>> {
+    ) -> Result<FixedAppendLog<ResourceType>> {
         let created = Self::open_impl(
             None,
             loader.persistence_path(),
@@ -279,11 +280,14 @@ impl<TypeStore: LoadStore + Default> FixedAppendLog<TypeStore> {
 
     // Writes out a resource instance; does not update the commit position, but in this version, does advance the pending commit position.
     // In the future, we may support a queue of commit points, or even entire sequences of pre-written alternative future versions (for chained consensus), which would require a more complex interface.
-    pub fn store_resource(&mut self, resource: &TypeStore::ParamType) -> Result<StorageLocation> {
+    pub fn store_resource(
+        &mut self,
+        resource: &ResourceType::ParamType,
+    ) -> Result<StorageLocation> {
         if self.write_to_file.is_none() {
             self.open_write_file()?;
         }
-        let serialized = TypeStore::store(resource)?;
+        let serialized = ResourceType::store(resource)?;
         debug_assert_eq!(serialized.len() as u64, self.resource_size);
         self.write_to_file
             .as_ref()
@@ -338,7 +342,7 @@ impl<TypeStore: LoadStore + Default> FixedAppendLog<TypeStore> {
     }
 
     // these function as an alternative to the LogLoader, based on external (StorageLocation) addressing.
-    pub fn load_latest(&self) -> Result<TypeStore::ParamType> {
+    pub fn load_latest(&self) -> Result<ResourceType::ParamType> {
         if let Some(location) = self.persisted_sync.read()?.last_location() {
             self.load_specified(location)
         } else {
@@ -348,13 +352,13 @@ impl<TypeStore: LoadStore + Default> FixedAppendLog<TypeStore> {
         }
     }
 
-    pub fn load_specified(&self, location: &StorageLocation) -> Result<TypeStore::ParamType> {
+    pub fn load_specified(&self, location: &StorageLocation) -> Result<ResourceType::ParamType> {
         let index = self.location_to_index(location)?;
         self.load_at(index)
     }
 
     // this works like the LogLoader, but doesn't keep resources after the call completes.
-    pub fn load_at(&self, index: u64) -> Result<TypeStore::ParamType> {
+    pub fn load_at(&self, index: u64) -> Result<ResourceType::ParamType> {
         let file_index = index % self.file_size;
         let file_offset = index * self.resource_size;
         let range_begin = index - file_index;
@@ -369,10 +373,10 @@ impl<TypeStore: LoadStore + Default> FixedAppendLog<TypeStore> {
         let mut reader = read_file.take(self.resource_size);
         let mut buffer = Vec::new();
         reader.read_to_end(&mut buffer).context(StdIoReadError)?;
-        TypeStore::load(&buffer[..])
+        ResourceType::load(&buffer[..])
     }
 
-    pub fn iter(&self) -> Iter<TypeStore> {
+    pub fn iter(&self) -> Iter<ResourceType> {
         Iter {
             file_path: self.file_path.clone(),
             file_pattern: self.file_pattern.clone(),
@@ -381,13 +385,13 @@ impl<TypeStore: LoadStore + Default> FixedAppendLog<TypeStore> {
             read_from_file: None,
             from_index: 0,
             end_index: self.commit_index + 1,
-            _type_store: TypeStore::default(),
+            phantom: PhantomData,
         }
     }
 }
 
-impl<TypeStore: LoadStore + Default> Iter<TypeStore> {
-    fn helper(&mut self) -> Result<TypeStore::ParamType> {
+impl<ResourceType: LoadStore + Default> Iter<ResourceType> {
+    fn helper(&mut self) -> Result<ResourceType::ParamType> {
         let file_offset = self.from_index % self.file_size;
         let range_begin = self.from_index - file_offset;
         let range_end = range_begin + self.file_size;
@@ -411,12 +415,12 @@ impl<TypeStore: LoadStore + Default> Iter<TypeStore> {
         let mut buffer = Vec::new();
         reader.read_to_end(&mut buffer).context(StdIoReadError)?;
 
-        TypeStore::load(&buffer[..])
+        ResourceType::load(&buffer[..])
     }
 }
 
-impl<TypeStore: LoadStore> Iterator for Iter<TypeStore> {
-    type Item = Result<TypeStore::ParamType>;
+impl<ResourceType: LoadStore> Iterator for Iter<ResourceType> {
+    type Item = Result<ResourceType::ParamType>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.from_index >= self.end_index {
@@ -446,7 +450,7 @@ impl<TypeStore: LoadStore> Iterator for Iter<TypeStore> {
     }
 }
 
-impl<TypeStore: LoadStore> ExactSizeIterator for Iter<TypeStore> {
+impl<ResourceType: LoadStore> ExactSizeIterator for Iter<ResourceType> {
     fn len(&self) -> usize {
         (self.end_index - self.from_index) as usize
     }

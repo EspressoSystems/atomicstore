@@ -14,11 +14,12 @@ use snafu::ResultExt;
 use std::fs;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 #[derive(Debug)]
-pub struct RollingLog<TypeStore: LoadStore> {
+pub struct RollingLog<ResourceType: LoadStore> {
     persisted_sync: Arc<RwLock<VersionSyncHandle>>,
     file_path: PathBuf,
     file_pattern: String,
@@ -26,16 +27,16 @@ pub struct RollingLog<TypeStore: LoadStore> {
     write_to_file: Option<File>,
     write_pos: u64,
     write_file_counter: u32,
-    _type_store: TypeStore,
+    phantom: PhantomData<ResourceType>,
 }
 
-impl<TypeStore: LoadStore + Default> RollingLog<TypeStore> {
+impl<ResourceType: LoadStore + Default> RollingLog<ResourceType> {
     pub(crate) fn open_impl(
         location: Option<StorageLocation>,
         file_path: &Path,
         file_pattern: &str,
         file_fill_size: u64,
-    ) -> Result<RollingLog<TypeStore>> {
+    ) -> Result<RollingLog<ResourceType>> {
         let (write_pos, counter) = match location {
             Some(ref location) => {
                 let append_point = location.store_start + location.store_length as u64;
@@ -55,7 +56,7 @@ impl<TypeStore: LoadStore + Default> RollingLog<TypeStore> {
             write_to_file: None,
             write_pos,
             write_file_counter: counter,
-            _type_store: TypeStore::default(),
+            phantom: PhantomData,
         })
     }
 
@@ -63,7 +64,7 @@ impl<TypeStore: LoadStore + Default> RollingLog<TypeStore> {
         loader: &mut AtomicStoreLoader,
         file_pattern: &str,
         file_fill_size: u64,
-    ) -> Result<RollingLog<TypeStore>> {
+    ) -> Result<RollingLog<ResourceType>> {
         let created = Self::open_impl(
             loader.look_up_resource(file_pattern),
             loader.persistence_path(),
@@ -77,7 +78,7 @@ impl<TypeStore: LoadStore + Default> RollingLog<TypeStore> {
         loader: &mut AtomicStoreLoader,
         file_pattern: &str,
         file_fill_size: u64,
-    ) -> Result<RollingLog<TypeStore>> {
+    ) -> Result<RollingLog<ResourceType>> {
         let created = Self::open_impl(
             None,
             loader.persistence_path(),
@@ -136,11 +137,14 @@ impl<TypeStore: LoadStore + Default> RollingLog<TypeStore> {
 
     // Writes out a resource instance; does not update the commit position, but in this version, does advance the pending commit position.
     // In the future, we may support a queue of commit points, or even entire sequences of pre-written alternative future versions (for chained consensus), which would require a more complex interface.
-    pub fn store_resource(&mut self, resource: &TypeStore::ParamType) -> Result<StorageLocation> {
+    pub fn store_resource(
+        &mut self,
+        resource: &ResourceType::ParamType,
+    ) -> Result<StorageLocation> {
         if self.write_to_file.is_none() {
             self.open_write_file()?;
         }
-        let serialized = TypeStore::store(resource)?;
+        let serialized = ResourceType::store(resource)?;
         let resource_length = serialized.len() as u32;
         self.write_to_file
             .as_ref()
@@ -174,7 +178,7 @@ impl<TypeStore: LoadStore + Default> RollingLog<TypeStore> {
     }
 
     // Opens a new handle to the file. Possibly need to revisit in the future?
-    pub fn load_latest(&self) -> Result<TypeStore::ParamType> {
+    pub fn load_latest(&self) -> Result<ResourceType::ParamType> {
         if let Some(location) = self.persisted_sync.read()?.last_location() {
             self.load_specified(location)
         } else {
@@ -183,7 +187,7 @@ impl<TypeStore: LoadStore + Default> RollingLog<TypeStore> {
             })
         }
     }
-    pub fn load_specified(&self, location: &StorageLocation) -> Result<TypeStore::ParamType> {
+    pub fn load_specified(&self, location: &StorageLocation) -> Result<ResourceType::ParamType> {
         let mut read_file_path_buf = self.file_path.clone();
         read_file_path_buf.push(format!("{}_{}", self.file_pattern, location.file_counter));
         let mut read_file = File::open(read_file_path_buf.as_path()).context(StdIoOpenError)?;
@@ -193,6 +197,6 @@ impl<TypeStore: LoadStore + Default> RollingLog<TypeStore> {
         let mut reader = read_file.take(location.store_length as u64);
         let mut buffer = Vec::new();
         reader.read_to_end(&mut buffer).context(StdIoReadError)?;
-        TypeStore::load(&buffer[..])
+        ResourceType::load(&buffer[..])
     }
 }

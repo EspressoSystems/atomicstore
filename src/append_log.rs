@@ -16,11 +16,12 @@ use snafu::ResultExt;
 use std::fs;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 #[derive(Debug)]
-pub struct AppendLog<TypeStore: LoadStore> {
+pub struct AppendLog<ResourceType: LoadStore> {
     persisted_sync: Arc<RwLock<VersionSyncHandle>>,
     file_path: PathBuf,
     file_pattern: String,
@@ -29,16 +30,16 @@ pub struct AppendLog<TypeStore: LoadStore> {
     write_pos: u64,
     write_file_counter: u32,
     index_log: FixedAppendLog<StorageLocationLoadStore>,
-    _type_store: TypeStore,
+    phantom: PhantomData<ResourceType>,
 }
 
-pub struct Iter<TypeStore: LoadStore> {
+pub struct Iter<ResourceType: LoadStore> {
     inner_iter: fixed_append_log::Iter<StorageLocationLoadStore>,
     file_path: PathBuf,
     file_pattern: String,
     read_from_file: Option<File>,
     read_from_counter: u32,
-    _type_store: TypeStore,
+    phantom: PhantomData<ResourceType>,
 }
 
 fn format_index_file_pattern(file_pattern: &str) -> String {
@@ -51,27 +52,27 @@ fn format_nth_file_path(root_path: &Path, file_pattern: &str, file_count: u32) -
     buf
 }
 
-fn load_from_file<TypeStore: LoadStore>(
+fn load_from_file<ResourceType: LoadStore>(
     read_file: &mut File,
     location: &StorageLocation,
-) -> Result<TypeStore::ParamType> {
+) -> Result<ResourceType::ParamType> {
     read_file
         .seek(SeekFrom::Start(location.store_start))
         .context(StdIoSeekError)?;
     let mut reader = read_file.take(location.store_length as u64);
     let mut buffer = Vec::new();
     reader.read_to_end(&mut buffer).context(StdIoReadError)?;
-    TypeStore::load(&buffer[..])
+    ResourceType::load(&buffer[..])
 }
 
-impl<TypeStore: LoadStore + Default> AppendLog<TypeStore> {
+impl<ResourceType: LoadStore> AppendLog<ResourceType> {
     pub(crate) fn open_impl(
         loader: &mut AtomicStoreLoader,
         location: Option<StorageLocation>,
         file_path: &Path,
         file_pattern: &str,
         file_fill_size: u64,
-    ) -> Result<AppendLog<TypeStore>> {
+    ) -> Result<AppendLog<ResourceType>> {
         let index_pattern = format_index_file_pattern(file_pattern);
         let (write_pos, counter, index_log) = match location {
             Some(ref location) => {
@@ -108,7 +109,7 @@ impl<TypeStore: LoadStore + Default> AppendLog<TypeStore> {
             write_pos,
             write_file_counter: counter,
             index_log,
-            _type_store: TypeStore::default(),
+            phantom: PhantomData,
         })
     }
 
@@ -116,7 +117,7 @@ impl<TypeStore: LoadStore + Default> AppendLog<TypeStore> {
         loader: &mut AtomicStoreLoader,
         file_pattern: &str,
         file_fill_size: u64,
-    ) -> Result<AppendLog<TypeStore>> {
+    ) -> Result<AppendLog<ResourceType>> {
         let resource = loader.look_up_resource(file_pattern);
         let path = loader.persistence_path().to_path_buf();
         let created = Self::open_impl(loader, resource, &path, file_pattern, file_fill_size)?;
@@ -127,7 +128,7 @@ impl<TypeStore: LoadStore + Default> AppendLog<TypeStore> {
         loader: &mut AtomicStoreLoader,
         file_pattern: &str,
         file_fill_size: u64,
-    ) -> Result<AppendLog<TypeStore>> {
+    ) -> Result<AppendLog<ResourceType>> {
         let path = loader.persistence_path().to_path_buf();
         let created = Self::open_impl(loader, None, &path, file_pattern, file_fill_size)?;
         loader.add_sync_handle(file_pattern, created.persisted_sync.clone())?;
@@ -180,11 +181,14 @@ impl<TypeStore: LoadStore + Default> AppendLog<TypeStore> {
 
     // Writes out a resource instance; does not update the commit position, but in this version, does advance the pending commit position.
     // In the future, we may support a queue of commit points, or even entire sequences of pre-written alternative future versions (for chained consensus), which would require a more complex interface.
-    pub fn store_resource(&mut self, resource: &TypeStore::ParamType) -> Result<StorageLocation> {
+    pub fn store_resource(
+        &mut self,
+        resource: &ResourceType::ParamType,
+    ) -> Result<StorageLocation> {
         if self.write_to_file.is_none() {
             self.open_write_file()?;
         }
-        let serialized = TypeStore::store(resource)?;
+        let serialized = ResourceType::store(resource)?;
         let resource_length = serialized.len() as u32;
         self.write_to_file
             .as_ref()
@@ -221,7 +225,7 @@ impl<TypeStore: LoadStore + Default> AppendLog<TypeStore> {
     }
 
     // Opens a new handle to the file. Possibly need to revisit in the future?
-    pub fn load_latest(&self) -> Result<TypeStore::ParamType> {
+    pub fn load_latest(&self) -> Result<ResourceType::ParamType> {
         if let Some(location) = self.persisted_sync.read()?.last_location() {
             self.load_specified(location)
         } else {
@@ -230,27 +234,27 @@ impl<TypeStore: LoadStore + Default> AppendLog<TypeStore> {
             })
         }
     }
-    pub fn load_specified(&self, location: &StorageLocation) -> Result<TypeStore::ParamType> {
+    pub fn load_specified(&self, location: &StorageLocation) -> Result<ResourceType::ParamType> {
         let read_file_path =
             format_nth_file_path(&self.file_path, &self.file_pattern, location.file_counter);
         let mut read_file = File::open(read_file_path.as_path()).context(StdIoOpenError)?;
-        load_from_file::<TypeStore>(&mut read_file, location)
+        load_from_file::<ResourceType>(&mut read_file, location)
     }
 
-    pub fn iter(&self) -> Iter<TypeStore> {
+    pub fn iter(&self) -> Iter<ResourceType> {
         Iter {
             inner_iter: self.index_log.iter(),
             file_path: self.file_path.clone(),
             file_pattern: self.file_pattern.clone(),
             read_from_file: None,
             read_from_counter: 0,
-            _type_store: TypeStore::default(),
+            phantom: PhantomData,
         }
     }
 }
 
-impl<TypeStore: LoadStore> Iter<TypeStore> {
-    fn helper(&mut self, location: &StorageLocation) -> Result<TypeStore::ParamType> {
+impl<ResourceType: LoadStore> Iter<ResourceType> {
+    fn helper(&mut self, location: &StorageLocation) -> Result<ResourceType::ParamType> {
         if location.file_counter != self.read_from_counter {
             self.read_from_file = None;
         }
@@ -261,12 +265,12 @@ impl<TypeStore: LoadStore> Iter<TypeStore> {
             self.read_from_file =
                 Some(File::open(read_file_path.as_path()).context(StdIoOpenError)?);
         }
-        load_from_file::<TypeStore>(&mut self.read_from_file.as_mut().unwrap(), location)
+        load_from_file::<ResourceType>(&mut self.read_from_file.as_mut().unwrap(), location)
     }
 }
 
-impl<TypeStore: LoadStore> Iterator for Iter<TypeStore> {
-    type Item = Result<TypeStore::ParamType>;
+impl<ResourceType: LoadStore> Iterator for Iter<ResourceType> {
+    type Item = Result<ResourceType::ParamType>;
 
     fn next(&mut self) -> Option<Self::Item> {
         Some(
@@ -287,7 +291,7 @@ impl<TypeStore: LoadStore> Iterator for Iter<TypeStore> {
     }
 }
 
-impl<TypeStore: LoadStore> ExactSizeIterator for Iter<TypeStore> {
+impl<ResourceType: LoadStore> ExactSizeIterator for Iter<ResourceType> {
     fn len(&self) -> usize {
         self.inner_iter.len()
     }
