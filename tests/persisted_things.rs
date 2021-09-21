@@ -3,7 +3,9 @@ use atomic_store::{
     append_log::AppendLog,
     atomic_store::{AtomicStore, AtomicStoreLoader},
     error::PersistenceError,
+    load_store::BincodeLoadStore,
     rolling_log::RollingLog,
+    Result,
 };
 use serde::{Deserialize, Serialize};
 
@@ -43,22 +45,22 @@ impl fmt::Display for ThingC {
 }
 
 #[test]
-fn create_populate_drop_load() -> Result<(), PersistenceError> {
+fn create_populate_drop_load() -> Result<()> {
     single_threaded_create_and_populate()?;
     single_threaded_load_from_files()?;
     Ok(())
 }
 
-fn single_threaded_create_and_populate() -> Result<(), PersistenceError> {
+fn single_threaded_create_and_populate() -> Result<()> {
     let mut test_path =
         env::current_dir().map_err(|e| PersistenceError::StdIoDirOpsError { source: e })?;
     test_path.push("testing_tmp");
 
     let mut store_loader =
         AtomicStoreLoader::create(test_path.as_path(), "persisted_things_store")?;
-    let persisted_a = AppendLog::<ThingA>::create(&mut store_loader, "a_store", 1024)?;
-    let persisted_b = AppendLog::<ThingB>::create(&mut store_loader, "b_store", 16)?;
-    let persisted_c = RollingLog::<ThingC>::create(&mut store_loader, "c_store", 16)?;
+    let persisted_a = AppendLog::<BincodeLoadStore::<ThingA>>::create(&mut store_loader, "a_store", 1024)?;
+    let persisted_b = AppendLog::<BincodeLoadStore::<ThingB>>::create(&mut store_loader, "b_store", 16)?;
+    let persisted_c = RollingLog::<BincodeLoadStore::<ThingC>>::create(&mut store_loader, "c_store", 16)?;
 
     let mut atomic_store = AtomicStore::open(store_loader)?;
 
@@ -194,15 +196,15 @@ fn single_threaded_create_and_populate() -> Result<(), PersistenceError> {
     Ok(())
 }
 
-fn single_threaded_load_from_files() -> Result<(), PersistenceError> {
+fn single_threaded_load_from_files() -> Result<()> {
     let mut test_path =
         env::current_dir().map_err(|e| PersistenceError::StdIoDirOpsError { source: e })?;
     test_path.push("testing_tmp");
 
     let mut store_loader = AtomicStoreLoader::load(test_path.as_path(), "persisted_things_store")?;
-    let persisted_a = AppendLog::<ThingA>::load(&mut store_loader, "a_store", 1024)?;
-    let persisted_b = AppendLog::<ThingB>::load(&mut store_loader, "b_store", 16)?;
-    let persisted_c = RollingLog::<ThingC>::load(&mut store_loader, "c_store", 16)?;
+    let persisted_a = AppendLog::<BincodeLoadStore::<ThingA>>::load(&mut store_loader, "a_store", 1024)?;
+    let persisted_b = AppendLog::<BincodeLoadStore::<ThingB>>::load(&mut store_loader, "b_store", 16)?;
+    let persisted_c = RollingLog::<BincodeLoadStore::<ThingC>>::load(&mut store_loader, "c_store", 16)?;
 
     let mut atomic_store = AtomicStore::open(store_loader)?;
 

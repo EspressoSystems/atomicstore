@@ -2,8 +2,8 @@ use crate::error::{
     BincodeDeError, BincodeSerError, GlobRuntime, GlobSyntax, PersistenceError, StdIoDirOpsError,
     StdIoOpenError, StdIoReadError, StdIoWriteError,
 };
-
 use crate::storage_location::StorageLocation;
+use crate::Result;
 
 use chrono::Utc;
 use glob::glob;
@@ -31,10 +31,10 @@ pub trait PersistentStore {
     fn persisted_location(&self) -> Option<StorageLocation>;
 
     /// called by `AtomicStore::commit_version()`, blocks until resource store file write is complete.
-    fn wait_for_version(&self) -> Result<(), PersistenceError>;
+    fn wait_for_version(&self) -> Result<()>;
 
     /// called by `AtomicStore::commit_version()`, resets blocking for next version
-    fn start_next_version(&mut self) -> Result<(), PersistenceError>;
+    fn start_next_version(&mut self) -> Result<()>;
 }
 
 /// This exists to provide a common type for serializing and deserializing of the atomic store
@@ -45,7 +45,7 @@ struct AtomicStoreFileContents {
     pub resource_files: HashMap<String, StorageLocation>,
 }
 
-fn load_state(path: &Path) -> Result<AtomicStoreFileContents, PersistenceError> {
+fn load_state(path: &Path) -> Result<AtomicStoreFileContents> {
     let mut file = File::open(path).context(StdIoOpenError)?;
     let mut buf = Vec::new();
     file.read_to_end(&mut buf).context(StdIoReadError)?;
@@ -98,7 +98,7 @@ impl AtomicStoreLoader {
     pub fn load(
         storage_path: &Path,
         file_pattern: &str,
-    ) -> Result<AtomicStoreLoader, PersistenceError> {
+    ) -> Result<AtomicStoreLoader> {
         let file_path = storage_path.to_path_buf();
         let load_path_buf = format_latest_file_path(storage_path, file_pattern);
         let alt_path_buf;
@@ -163,7 +163,7 @@ impl AtomicStoreLoader {
     pub fn create(
         storage_path: &Path,
         file_pattern: &str,
-    ) -> Result<AtomicStoreLoader, PersistenceError> {
+    ) -> Result<AtomicStoreLoader> {
         if !storage_path.exists() {
             fs::create_dir_all(storage_path).context(StdIoDirOpsError)?;
         } else if format_archived_file_path(storage_path, file_pattern, 0).exists()
@@ -206,7 +206,7 @@ impl AtomicStoreLoader {
         &mut self,
         key: &str,
         resource: Arc<RwLock<dyn PersistentStore>>,
-    ) -> Result<(), PersistenceError> {
+    ) -> Result<()> {
         if let Entry::Vacant(insert_point) = self.resources.entry(key.to_string()) {
             insert_point.insert(resource);
         } else {
@@ -230,7 +230,7 @@ pub struct AtomicStore {
 }
 
 impl AtomicStore {
-    pub fn open(load_info: AtomicStoreLoader) -> Result<AtomicStore, PersistenceError> {
+    pub fn open(load_info: AtomicStoreLoader) -> Result<AtomicStore> {
         Ok(AtomicStore {
             file_path: load_info.file_path,
             file_pattern: load_info.file_pattern,
@@ -248,7 +248,7 @@ impl AtomicStore {
         })
     }
 
-    pub fn commit_version(&mut self) -> Result<(), PersistenceError> {
+    pub fn commit_version(&mut self) -> Result<()> {
         let mut collected_locations = HashMap::<String, StorageLocation>::new();
         for (resource_key, resource_store) in self.resources.iter() {
             {

@@ -1,3 +1,4 @@
+use ark_serialize;
 use bincode;
 use glob;
 use snafu::Snafu;
@@ -68,6 +69,12 @@ pub enum PersistenceError {
     BincodeSerError { source: bincode::Error },
     /// Bincode deserialization error
     BincodeDeError { source: bincode::Error },
+    /// ArkWorks serialization error
+    #[snafu(display("Arkworks Serialization Error on write: {}", err))]
+    ArkSerError { err: ark_serialize::SerializationError },
+    /// ArkWorks deserialization error
+    #[snafu(display("Arkworks Serialization Error on read: {}", err))]
+    ArkDeError { err: ark_serialize::SerializationError },
     /// Glob syntax error
     GlobSyntax { source: glob::PatternError },
     /// Glob iteration error

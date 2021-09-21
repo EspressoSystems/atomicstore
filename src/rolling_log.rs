@@ -1,25 +1,24 @@
 use crate::atomic_store::{AtomicStoreLoader, PersistentStore};
 use crate::error::{
-    BincodeDeError, BincodeSerError, PersistenceError, StdIoDirOpsError, StdIoOpenError,
+    PersistenceError, StdIoDirOpsError, StdIoOpenError,
     StdIoReadError, StdIoSeekError, StdIoWriteError,
 };
+use crate::load_store::LoadStore;
 use crate::storage_location::StorageLocation;
 use crate::version_sync::PersistedLocationHandler;
+use crate::Result;
 
 use chrono::Utc;
-use serde::de::DeserializeOwned;
-use serde::Serialize;
 use snafu::ResultExt;
 
 use std::fs;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 #[derive(Debug)]
-pub struct RollingLog<StoredResource: 'static> {
+pub struct RollingLog<TypeStore: LoadStore> {
     persisted_sync: PersistedLocationHandler,
     file_path: PathBuf,
     file_pattern: String,
@@ -27,16 +26,16 @@ pub struct RollingLog<StoredResource: 'static> {
     write_to_file: Option<File>,
     write_pos: u64,
     write_file_counter: u32,
-    phantom: PhantomData<&'static StoredResource>,
+    _type_store: TypeStore,
 }
 
-impl<StoredResource: Serialize + DeserializeOwned> RollingLog<StoredResource> {
+impl<TypeStore: 'static + LoadStore + Default> RollingLog<TypeStore> {
     pub(crate) fn open_impl(
         location: Option<StorageLocation>,
         file_path: &Path,
         file_pattern: &str,
         file_fill_size: u64,
-    ) -> Result<RollingLog<StoredResource>, PersistenceError> {
+    ) -> Result<RollingLog<TypeStore>> {
         let (write_pos, counter) = match location {
             Some(ref location) => {
                 let append_point = location.store_start + location.store_length as u64;
@@ -56,7 +55,7 @@ impl<StoredResource: Serialize + DeserializeOwned> RollingLog<StoredResource> {
             write_to_file: None,
             write_pos,
             write_file_counter: counter,
-            phantom: PhantomData,
+            _type_store: TypeStore::default(),
         })
     }
 
@@ -64,7 +63,7 @@ impl<StoredResource: Serialize + DeserializeOwned> RollingLog<StoredResource> {
         loader: &mut AtomicStoreLoader,
         file_pattern: &str,
         file_fill_size: u64,
-    ) -> Result<Arc<RwLock<RollingLog<StoredResource>>>, PersistenceError> {
+    ) -> Result<Arc<RwLock<RollingLog<TypeStore>>>> {
         let created = Arc::new(RwLock::new(Self::open_impl(
             loader.look_up_resource(file_pattern),
             loader.persistence_path(),
@@ -78,7 +77,7 @@ impl<StoredResource: Serialize + DeserializeOwned> RollingLog<StoredResource> {
         loader: &mut AtomicStoreLoader,
         file_pattern: &str,
         file_fill_size: u64,
-    ) -> Result<Arc<RwLock<RollingLog<StoredResource>>>, PersistenceError> {
+    ) -> Result<Arc<RwLock<RollingLog<TypeStore>>>> {
         let created = Arc::new(RwLock::new(Self::open_impl(
             None,
             loader.persistence_path(),
@@ -89,7 +88,7 @@ impl<StoredResource: Serialize + DeserializeOwned> RollingLog<StoredResource> {
         Ok(created)
     }
 
-    fn open_write_file(&mut self) -> Result<(), PersistenceError> {
+    fn open_write_file(&mut self) -> Result<()> {
         let mut out_file_path_buf = self.file_path.clone();
         out_file_path_buf.push(format!("{}_{}", self.file_pattern, self.write_file_counter));
         let out_file_path = out_file_path_buf.as_path();
@@ -139,12 +138,12 @@ impl<StoredResource: Serialize + DeserializeOwned> RollingLog<StoredResource> {
     // In the future, we may support a queue of commit points, or even entire sequences of pre-written alternative future versions (for chained consensus), which would require a more complex interface.
     pub fn store_resource(
         &mut self,
-        resource: &StoredResource,
-    ) -> Result<StorageLocation, PersistenceError> {
+        resource: &TypeStore::ParamType,
+    ) -> Result<StorageLocation> {
         if self.write_to_file.is_none() {
             self.open_write_file()?;
         }
-        let serialized = bincode::serialize(resource).context(BincodeSerError)?;
+        let serialized = TypeStore::store(resource)?;
         let resource_length = serialized.len() as u32;
         self.write_to_file
             .as_ref()
@@ -178,7 +177,7 @@ impl<StoredResource: Serialize + DeserializeOwned> RollingLog<StoredResource> {
     }
 
     // Opens a new handle to the file. Possibly need to revisit in the future?
-    pub fn load_latest(&self) -> Result<StoredResource, PersistenceError> {
+    pub fn load_latest(&self) -> Result<TypeStore::ParamType> {
         if let Some(location) = self.persisted_sync.last_location() {
             self.load_specified(location)
         } else {
@@ -190,7 +189,7 @@ impl<StoredResource: Serialize + DeserializeOwned> RollingLog<StoredResource> {
     pub fn load_specified(
         &self,
         location: &StorageLocation,
-    ) -> Result<StoredResource, PersistenceError> {
+    ) -> Result<TypeStore::ParamType> {
         let mut read_file_path_buf = self.file_path.clone();
         read_file_path_buf.push(format!("{}_{}", self.file_pattern, location.file_counter));
         let mut read_file = File::open(read_file_path_buf.as_path()).context(StdIoOpenError)?;
@@ -200,23 +199,22 @@ impl<StoredResource: Serialize + DeserializeOwned> RollingLog<StoredResource> {
         let mut reader = read_file.take(location.store_length as u64);
         let mut buffer = Vec::new();
         reader.read_to_end(&mut buffer).context(StdIoReadError)?;
-        let resource = bincode::deserialize(&buffer[..]).context(BincodeDeError)?;
-        Ok(resource)
+        TypeStore::load(&buffer[..])
     }
 }
 
-impl<StoredResource> PersistentStore for RollingLog<StoredResource> {
+impl<TypeStore: LoadStore> PersistentStore for RollingLog<TypeStore> {
     fn resource_key(&self) -> &str {
         &self.file_pattern
     }
     fn persisted_location(&self) -> Option<StorageLocation> {
         *self.persisted_sync.last_location()
     }
-    fn wait_for_version(&self) -> Result<(), PersistenceError> {
+    fn wait_for_version(&self) -> Result<()> {
         self.persisted_sync.wait_for_version();
         Ok(())
     }
-    fn start_next_version(&mut self) -> Result<(), PersistenceError> {
+    fn start_next_version(&mut self) -> Result<()> {
         self.persisted_sync.start_version()
     }
 }

@@ -3,18 +3,18 @@ use crate::error::{
     BincodeDeError, BincodeSerError, PersistenceError, StdIoDirOpsError, StdIoOpenError,
     StdIoReadError, StdIoSeekError, StdIoWriteError,
 };
+use crate::load_store::LoadStore;
 use crate::storage_location::StorageLocation;
 use crate::version_sync::PersistedLocationHandler;
+use crate::Result;
 
 use chrono::Utc;
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use snafu::ResultExt;
 
 use std::fs;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
@@ -30,7 +30,7 @@ struct IndexContents {
 const BYTE_ORDER: u32 = 0x8001FEFFu32;
 const BYTE_DISORDER: u32 = 0xFFFE0180u32;
 
-fn load_existing_index(index_file_path: &Path) -> Result<IndexContents, PersistenceError> {
+fn load_existing_index(index_file_path: &Path) -> Result<IndexContents> {
     if !index_file_path.is_file() {
         return Err(PersistenceError::InvalidPathToFile {
             path: index_file_path.to_string_lossy().to_string(),
@@ -102,19 +102,19 @@ fn compute_location(from_index: &IndexContents) -> StorageLocation {
 
 /// For now, this is implemented with a direct copy from memory to file, using native order, but the order is recorded in a header, and can be used to support transfer in the future.
 #[derive(Debug)]
-pub struct FixedAppendLog<StoredResource: 'static> {
+pub struct FixedAppendLog<TypeStore: LoadStore> {
     persisted_sync: PersistedLocationHandler,
     file_path: PathBuf,
     file_pattern: String,
-    resource_size: u64, // must match StoredResource serialized size.
-    file_size: u64, // number of StoredResource serializations per file; must not change, will check on load.
+    resource_size: u64, // must match TypeStore::ParamType serialized size.
+    file_size: u64, // number of TypeStore::ParamType serializations per file; must not change, will check on load.
     write_to_file: Option<File>,
     commit_index: u64,
     write_index: u64, // other indexes can be derived.
-    phantom: PhantomData<&'static StoredResource>,
+    _type_store: TypeStore,
 }
 
-pub struct Iter<StoredResource: 'static> {
+pub struct Iter<TypeStore: LoadStore> {
     file_path: PathBuf,
     file_pattern: String,
     resource_size: u64,
@@ -122,17 +122,17 @@ pub struct Iter<StoredResource: 'static> {
     read_from_file: Option<File>,
     from_index: u64,
     end_index: u64,
-    phantom: PhantomData<&'static StoredResource>,
+    _type_store: TypeStore,
 }
 
-impl<StoredResource: Serialize + DeserializeOwned> FixedAppendLog<StoredResource> {
+impl<TypeStore: 'static + LoadStore + Default> FixedAppendLog<TypeStore> {
     pub(crate) fn open_impl(
         location: Option<StorageLocation>,
         file_path: &Path,
         file_pattern: &str,
         resource_size: u64,
         file_size: u64,
-    ) -> Result<FixedAppendLog<StoredResource>, PersistenceError> {
+    ) -> Result<FixedAppendLog<TypeStore>> {
         let index_file_path = format_index_file_path(file_path, file_pattern);
         let backup_file_path = format_backup_index_file_path(file_path, file_pattern);
         let commit_index;
@@ -172,7 +172,7 @@ impl<StoredResource: Serialize + DeserializeOwned> FixedAppendLog<StoredResource
             write_to_file: None,
             commit_index,
             write_index,
-            phantom: PhantomData,
+            _type_store: TypeStore::default(),
         })
     }
     pub fn load(
@@ -180,7 +180,7 @@ impl<StoredResource: Serialize + DeserializeOwned> FixedAppendLog<StoredResource
         file_pattern: &str,
         resource_size: u64,
         file_size: u64,
-    ) -> Result<Arc<RwLock<FixedAppendLog<StoredResource>>>, PersistenceError> {
+    ) -> Result<Arc<RwLock<FixedAppendLog<TypeStore>>>> {
         let created = Arc::new(RwLock::new(Self::open_impl(
             loader.look_up_resource(file_pattern),
             loader.persistence_path(),
@@ -196,7 +196,7 @@ impl<StoredResource: Serialize + DeserializeOwned> FixedAppendLog<StoredResource
         file_pattern: &str,
         resource_size: u64,
         file_size: u64,
-    ) -> Result<Arc<RwLock<FixedAppendLog<StoredResource>>>, PersistenceError> {
+    ) -> Result<Arc<RwLock<FixedAppendLog<TypeStore>>>> {
         let created = Arc::new(RwLock::new(Self::open_impl(
             None,
             loader.persistence_path(),
@@ -208,7 +208,7 @@ impl<StoredResource: Serialize + DeserializeOwned> FixedAppendLog<StoredResource
         Ok(created)
     }
 
-    fn location_to_index(&self, location: &StorageLocation) -> Result<u64, PersistenceError> {
+    fn location_to_index(&self, location: &StorageLocation) -> Result<u64> {
         if location.store_length as u64 != self.resource_size
             || location.store_start % self.resource_size != 0
         {
@@ -229,7 +229,7 @@ impl<StoredResource: Serialize + DeserializeOwned> FixedAppendLog<StoredResource
         }
     }
 
-    fn open_write_file(&mut self) -> Result<(), PersistenceError> {
+    fn open_write_file(&mut self) -> Result<()> {
         let file_index = self.write_index % self.file_size;
         let write_pos = file_index * self.resource_size;
         let range_begin = self.write_index - file_index;
@@ -281,12 +281,12 @@ impl<StoredResource: Serialize + DeserializeOwned> FixedAppendLog<StoredResource
     // In the future, we may support a queue of commit points, or even entire sequences of pre-written alternative future versions (for chained consensus), which would require a more complex interface.
     pub fn store_resource(
         &mut self,
-        resource: &StoredResource,
-    ) -> Result<StorageLocation, PersistenceError> {
+        resource: &TypeStore::ParamType,
+    ) -> Result<StorageLocation> {
         if self.write_to_file.is_none() {
             self.open_write_file()?;
         }
-        let serialized = bincode::serialize(resource).context(BincodeSerError)?;
+        let serialized = TypeStore::store(resource)?;
         debug_assert_eq!(serialized.len() as u64, self.resource_size);
         self.write_to_file
             .as_ref()
@@ -305,7 +305,7 @@ impl<StoredResource: Serialize + DeserializeOwned> FixedAppendLog<StoredResource
     }
 
     // This currenty won't have any effect if called again before the atomic store has processed the prior committed version. A more appropriate behavior might be to block. A version that supports queued writes could enqueue the commit points.
-    pub fn commit_version(&mut self) -> Result<(), PersistenceError> {
+    pub fn commit_version(&mut self) -> Result<()> {
         let index_file_path = format_index_file_path(&self.file_path, &self.file_pattern);
         let backup_file_path = format_backup_index_file_path(&self.file_path, &self.file_pattern);
         let working_file_path = format_working_index_file_path(&self.file_path, &self.file_pattern);
@@ -337,13 +337,13 @@ impl<StoredResource: Serialize + DeserializeOwned> FixedAppendLog<StoredResource
         Ok(())
     }
 
-    pub fn skip_version(&mut self) -> Result<(), PersistenceError> {
+    pub fn skip_version(&mut self) -> Result<()> {
         self.persisted_sync.skip_version();
         Ok(())
     }
 
     // these function as an alternative to the LogLoader, based on external (StorageLocation) addressing.
-    pub fn load_latest(&self) -> Result<StoredResource, PersistenceError> {
+    pub fn load_latest(&self) -> Result<TypeStore::ParamType> {
         if let Some(location) = self.persisted_sync.last_location() {
             self.load_specified(location)
         } else {
@@ -356,13 +356,13 @@ impl<StoredResource: Serialize + DeserializeOwned> FixedAppendLog<StoredResource
     pub fn load_specified(
         &self,
         location: &StorageLocation,
-    ) -> Result<StoredResource, PersistenceError> {
+    ) -> Result<TypeStore::ParamType> {
         let index = self.location_to_index(location)?;
         self.load_at(index)
     }
 
     // this works like the LogLoader, but doesn't keep resources after the call completes.
-    pub fn load_at(&self, index: u64) -> Result<StoredResource, PersistenceError> {
+    pub fn load_at(&self, index: u64) -> Result<TypeStore::ParamType> {
         let file_index = index % self.file_size;
         let file_offset = index * self.resource_size;
         let range_begin = index - file_index;
@@ -377,11 +377,10 @@ impl<StoredResource: Serialize + DeserializeOwned> FixedAppendLog<StoredResource
         let mut reader = read_file.take(self.resource_size);
         let mut buffer = Vec::new();
         reader.read_to_end(&mut buffer).context(StdIoReadError)?;
-        let resource = bincode::deserialize(&buffer[..]).context(BincodeDeError)?;
-        Ok(resource)
+        TypeStore::load(&buffer[..])
     }
 
-    pub fn iter(&self) -> Iter<StoredResource> {
+    pub fn iter(&self) -> Iter<TypeStore> {
         Iter {
             file_path: self.file_path.clone(),
             file_pattern: self.file_pattern.clone(),
@@ -390,13 +389,13 @@ impl<StoredResource: Serialize + DeserializeOwned> FixedAppendLog<StoredResource
             read_from_file: None,
             from_index: 0,
             end_index: self.commit_index + 1,
-            phantom: PhantomData,
+            _type_store: TypeStore::default()
         }
     }
 }
 
-impl<StoredResource: Serialize + DeserializeOwned> Iter<StoredResource> {
-    fn helper(&mut self) -> Result<StoredResource, PersistenceError> {
+impl<TypeStore: LoadStore + Default> Iter<TypeStore> {
+    fn helper(&mut self) -> Result<TypeStore::ParamType> {
         let file_offset = self.from_index % self.file_size;
         let range_begin = self.from_index - file_offset;
         let range_end = range_begin + self.file_size;
@@ -420,12 +419,12 @@ impl<StoredResource: Serialize + DeserializeOwned> Iter<StoredResource> {
         let mut buffer = Vec::new();
         reader.read_to_end(&mut buffer).context(StdIoReadError)?;
 
-        bincode::deserialize(&buffer[..]).context(BincodeDeError)
+        TypeStore::load(&buffer[..])
     }
 }
 
-impl<StoredResource: Serialize + DeserializeOwned> Iterator for Iter<StoredResource> {
-    type Item = Result<StoredResource, PersistenceError>;
+impl<TypeStore: LoadStore> Iterator for Iter<TypeStore> {
+    type Item = Result<TypeStore::ParamType>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.from_index >= self.end_index {
@@ -455,24 +454,24 @@ impl<StoredResource: Serialize + DeserializeOwned> Iterator for Iter<StoredResou
     }
 }
 
-impl<StoredResource: Serialize + DeserializeOwned> ExactSizeIterator for Iter<StoredResource> {
+impl<TypeStore: LoadStore> ExactSizeIterator for Iter<TypeStore> {
     fn len(&self) -> usize {
         (self.end_index - self.from_index) as usize
     }
 }
 
-impl<StoredResource> PersistentStore for FixedAppendLog<StoredResource> {
+impl<TypeStore: LoadStore> PersistentStore for FixedAppendLog<TypeStore> {
     fn resource_key(&self) -> &str {
         &self.file_pattern
     }
     fn persisted_location(&self) -> Option<StorageLocation> {
         *self.persisted_sync.last_location()
     }
-    fn wait_for_version(&self) -> Result<(), PersistenceError> {
+    fn wait_for_version(&self) -> Result<()> {
         self.persisted_sync.wait_for_version();
         Ok(())
     }
-    fn start_next_version(&mut self) -> Result<(), PersistenceError> {
+    fn start_next_version(&mut self) -> Result<()> {
         self.persisted_sync.start_version()
     }
 }

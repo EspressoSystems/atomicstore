@@ -1,8 +1,8 @@
 // boy oh boy did clippy get this one wrong
 #![allow(clippy::mutex_atomic)]
 
-use crate::error::PersistenceError;
 use crate::storage_location::StorageLocation;
+use crate::Result;
 
 use std::sync::{Arc, Condvar, Mutex};
 
@@ -27,7 +27,7 @@ impl PersistedLocationHandler {
     // pub(crate) fn next_location(&self) -> &Option<StorageLocation> {
     //     &self.next_version_location
     // }
-    pub fn start_version(&mut self) -> Result<(), PersistenceError> {
+    pub fn start_version(&mut self) -> Result<()> {
         let (mtx, _) = &*self.version_pending;
         let mut version_ready = mtx.lock().unwrap(); // should not be possible without process corruption
         *version_ready = false;
