@@ -3,6 +3,7 @@ use crate::error::{
     StdIoOpenError, StdIoReadError, StdIoWriteError,
 };
 use crate::storage_location::StorageLocation;
+use crate::version_sync::VersionSyncHandle;
 use crate::Result;
 
 use chrono::Utc;
@@ -18,24 +19,6 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
-
-/// State management for a single persisted resource (a series of items, a snapshot of state, etc.)
-/// Resources that store as a sequence may or may not load the entire sequence into memory,
-/// and may or may not cache frequently accessed portions
-pub trait PersistentStore {
-    /// should be the file pattern; `AtomicStoreLoader` enforces uniqueness
-    fn resource_key(&self) -> &str;
-
-    /// location of last confirmed atomic update;
-    /// set by AtomicStoreLoader, updated when version commits
-    fn persisted_location(&self) -> Option<StorageLocation>;
-
-    /// called by `AtomicStore::commit_version()`, blocks until resource store file write is complete.
-    fn wait_for_version(&self) -> Result<()>;
-
-    /// called by `AtomicStore::commit_version()`, resets blocking for next version
-    fn start_next_version(&mut self) -> Result<()>;
-}
 
 /// This exists to provide a common type for serializing and deserializing of the atomic store
 /// table of contents, so the prior state can be pre-loaded without sacrificing single point of initialization.
@@ -82,7 +65,7 @@ fn format_working_file_path(root_path: &Path, file_pattern: &str) -> PathBuf {
     buf
 }
 
-/// Enables each managed PersistentStore instance to initialize before creating the AtomicStore.
+/// Enables each managed resource storage instance to initialize before creating the AtomicStore.
 pub struct AtomicStoreLoader {
     file_path: PathBuf,
     file_pattern: String,
@@ -90,7 +73,7 @@ pub struct AtomicStoreLoader {
     initial_run: bool,
     // TODO: type checking on load/store format embedded in StorageLocation?
     resource_files: HashMap<String, StorageLocation>,
-    resources: HashMap<String, Arc<RwLock<dyn PersistentStore>>>,
+    resources: HashMap<String, Arc<RwLock<VersionSyncHandle>>>,
 }
 
 impl AtomicStoreLoader {
@@ -196,13 +179,13 @@ impl AtomicStoreLoader {
     pub(crate) fn look_up_resource(&self, key: &str) -> Option<StorageLocation> {
         self.resource_files.get(key).copied()
     }
-    pub(crate) fn add_resource_handle(
+    pub(crate) fn add_sync_handle(
         &mut self,
         key: &str,
-        resource: Arc<RwLock<dyn PersistentStore>>,
+        handle: Arc<RwLock<VersionSyncHandle>>,
     ) -> Result<()> {
         if let Entry::Vacant(insert_point) = self.resources.entry(key.to_string()) {
-            insert_point.insert(resource);
+            insert_point.insert(handle);
         } else {
             return Err(PersistenceError::DuplicateResourceKey {
                 key: key.to_string(),
@@ -220,7 +203,7 @@ pub struct AtomicStore {
     file_pattern: String,
     file_counter: u32,
     last_counter: Option<u32>,
-    resources: HashMap<String, Arc<RwLock<dyn PersistentStore>>>,
+    resources: HashMap<String, Arc<RwLock<VersionSyncHandle>>>,
 }
 
 impl AtomicStore {
@@ -248,13 +231,13 @@ impl AtomicStore {
             {
                 let store_access = resource_store.read()?;
                 store_access.wait_for_version()?;
-                if let Some(location_found) = store_access.persisted_location() {
-                    collected_locations.insert(resource_key.to_string(), location_found);
+                if let Some(location_found) = store_access.last_location() {
+                    collected_locations.insert(resource_key.to_string(), *location_found);
                 }
             }
             {
                 let mut store_access = resource_store.write()?;
-                store_access.start_next_version()?;
+                store_access.start_version()?;
             }
         }
 

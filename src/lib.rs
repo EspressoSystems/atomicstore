@@ -9,7 +9,7 @@ pub mod version_sync;
 
 pub use crate::{
     append_log::AppendLog,
-    atomic_store::{AtomicStore, AtomicStoreLoader, PersistentStore},
+    atomic_store::{AtomicStore, AtomicStoreLoader},
     error::PersistenceError,
     fixed_append_log::FixedAppendLog,
     rolling_log::RollingLog,

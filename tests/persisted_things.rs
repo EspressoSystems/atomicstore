@@ -58,11 +58,11 @@ fn single_threaded_create_and_populate() -> Result<()> {
 
     let mut store_loader =
         AtomicStoreLoader::create(test_path.as_path(), "persisted_things_store")?;
-    let persisted_a =
+    let mut persisted_a =
         AppendLog::<BincodeLoadStore<ThingA>>::create(&mut store_loader, "a_store", 1024)?;
-    let persisted_b =
+    let mut persisted_b =
         AppendLog::<BincodeLoadStore<ThingB>>::create(&mut store_loader, "b_store", 16)?;
-    let persisted_c =
+    let mut persisted_c =
         RollingLog::<BincodeLoadStore<ThingC>>::create(&mut store_loader, "c_store", 16)?;
 
     let mut atomic_store = AtomicStore::open(store_loader)?;
@@ -75,17 +75,15 @@ fn single_threaded_create_and_populate() -> Result<()> {
     println!("Persisting resource A, {} elements", first_array_of_a.len());
     // write scope
     {
-        let mut a_writer = persisted_a.write()?;
-
         let first_a_locations: Vec<_> = first_array_of_a
             .iter()
-            .map(|a| a_writer.store_resource(&a).unwrap())
+            .map(|a| persisted_a.store_resource(&a).unwrap())
             .collect();
         println!(
             "Stored in files a_store_*, at locations {:?}",
             first_a_locations
         );
-        a_writer.commit_version()?;
+        persisted_a.commit_version()?;
     }
 
     let first_array_of_b: [ThingB; 10] = array_init::array_init(|i| ThingB {
@@ -95,27 +93,25 @@ fn single_threaded_create_and_populate() -> Result<()> {
     println!("Persisting resource B, {} elements", first_array_of_b.len());
     // write scope
     {
-        let mut b_writer = persisted_b.write()?;
         let first_b_locations: Vec<_> = first_array_of_b
             .iter()
-            .map(|b| b_writer.store_resource(&b).unwrap())
+            .map(|b| persisted_b.store_resource(&b).unwrap())
             .collect();
 
         println!(
             "Stored in files b_store_*, at locations {:?}",
             first_b_locations
         );
-        b_writer.commit_version()?;
+        persisted_b.commit_version()?;
     }
 
     let first_c = ThingC { c1: 42, c2: 2021 };
     println!("Persisting resource C, 1 element");
     // write scope
     {
-        let mut c_writer = persisted_c.write()?;
-        let first_c_location = c_writer.store_resource(&first_c).unwrap();
+        let first_c_location = persisted_c.store_resource(&first_c).unwrap();
         println!("Stored in file b_store_*, at location {}", first_c_location);
-        c_writer.commit_version();
+        persisted_c.commit_version()?;
     }
 
     println!("Committing resources");
@@ -129,32 +125,27 @@ fn single_threaded_create_and_populate() -> Result<()> {
         a2: i as i64 * 2,
     });
     {
-        let mut a_writer = persisted_a.write()?;
-
         let _locations: Vec<_> = second_array_of_a
             .iter()
-            .map(|a| a_writer.store_resource(&a).unwrap())
+            .map(|a| persisted_a.store_resource(&a).unwrap())
             .collect();
-        a_writer.commit_version()?;
+        persisted_a.commit_version()?;
     }
     let second_array_of_b: [ThingB; 10] = array_init::array_init(|i| ThingB {
         b1: i as i64 * 5,
         b2: 40 - i as i64,
     });
     {
-        let mut b_writer = persisted_b.write()?;
-
         let _locations: Vec<_> = second_array_of_b
             .iter()
-            .map(|b| b_writer.store_resource(&b).unwrap())
+            .map(|b| persisted_b.store_resource(&b).unwrap())
             .collect();
-        b_writer.commit_version()?;
+        persisted_b.commit_version()?;
     }
     let second_c = ThingC { c1: 99, c2: 1492 };
     {
-        let mut c_writer = persisted_c.write()?;
-        c_writer.store_resource(&second_c).unwrap();
-        c_writer.commit_version();
+        persisted_c.store_resource(&second_c).unwrap();
+        persisted_c.commit_version()?;
     }
 
     atomic_store.commit_version()?;
@@ -164,13 +155,11 @@ fn single_threaded_create_and_populate() -> Result<()> {
         a2: i as i64 * 2,
     });
     {
-        let mut a_writer = persisted_a.write()?;
-
         let _locations: Vec<_> = third_array_of_a
             .iter()
-            .map(|a| a_writer.store_resource(&a).unwrap())
+            .map(|a| persisted_a.store_resource(&a).unwrap())
             .collect();
-        a_writer.commit_version()?;
+        persisted_a.commit_version()?;
     }
 
     let third_array_of_b: [ThingB; 10] = array_init::array_init(|i| ThingB {
@@ -178,20 +167,17 @@ fn single_threaded_create_and_populate() -> Result<()> {
         b2: 50 - i as i64,
     });
     {
-        let mut b_writer = persisted_b.write()?;
-
         let _locations: Vec<_> = third_array_of_b
             .iter()
-            .map(|b| b_writer.store_resource(&b).unwrap())
+            .map(|b| persisted_b.store_resource(&b).unwrap())
             .collect();
         // don't commit this one.
     }
 
     let third_c = ThingC { c1: 17, c2: 113 };
     {
-        let mut c_writer = persisted_c.write()?;
-        c_writer.store_resource(&third_c).unwrap();
-        c_writer.commit_version();
+        persisted_c.store_resource(&third_c).unwrap();
+        persisted_c.commit_version()?;
     }
 
     // drop round three on the floor
@@ -205,11 +191,11 @@ fn single_threaded_load_from_files() -> Result<()> {
     test_path.push("testing_tmp");
 
     let mut store_loader = AtomicStoreLoader::load(test_path.as_path(), "persisted_things_store")?;
-    let persisted_a =
+    let mut persisted_a =
         AppendLog::<BincodeLoadStore<ThingA>>::load(&mut store_loader, "a_store", 1024)?;
-    let persisted_b =
+    let mut persisted_b =
         AppendLog::<BincodeLoadStore<ThingB>>::load(&mut store_loader, "b_store", 16)?;
-    let persisted_c =
+    let mut persisted_c =
         RollingLog::<BincodeLoadStore<ThingC>>::load(&mut store_loader, "c_store", 16)?;
 
     let mut atomic_store = AtomicStore::open(store_loader)?;
@@ -219,13 +205,11 @@ fn single_threaded_load_from_files() -> Result<()> {
         a2: i as i64 * 2,
     });
     {
-        let mut a_writer = persisted_a.write()?;
-
         let _locations: Vec<_> = third_array_of_a
             .iter()
-            .map(|a| a_writer.store_resource(&a).unwrap())
+            .map(|a| persisted_a.store_resource(&a).unwrap())
             .collect();
-        a_writer.commit_version()?;
+        persisted_a.commit_version()?;
     }
 
     let third_array_of_b: [ThingB; 10] = array_init::array_init(|i| ThingB {
@@ -233,20 +217,17 @@ fn single_threaded_load_from_files() -> Result<()> {
         b2: 50 - i as i64,
     });
     {
-        let mut b_writer = persisted_b.write()?;
-
         let _locations: Vec<_> = third_array_of_b
             .iter()
-            .map(|b| b_writer.store_resource(&b).unwrap())
+            .map(|b| persisted_b.store_resource(&b).unwrap())
             .collect();
-        b_writer.commit_version()?;
+        persisted_b.commit_version()?;
     }
 
     let third_c = ThingC { c1: 17, c2: 113 };
     {
-        let mut c_writer = persisted_c.write()?;
-        c_writer.store_resource(&third_c).unwrap();
-        c_writer.commit_version();
+        persisted_c.store_resource(&third_c).unwrap();
+        persisted_c.commit_version()?;
     }
 
     atomic_store.commit_version()?;

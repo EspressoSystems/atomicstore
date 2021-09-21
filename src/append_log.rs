@@ -1,4 +1,4 @@
-use crate::atomic_store::{AtomicStoreLoader, PersistentStore};
+use crate::atomic_store::AtomicStoreLoader;
 use crate::error::{
     PersistenceError, StdIoDirOpsError, StdIoOpenError, StdIoReadError, StdIoSeekError,
     StdIoWriteError,
@@ -7,7 +7,7 @@ use crate::fixed_append_log;
 use crate::fixed_append_log::FixedAppendLog;
 use crate::load_store::{LoadStore, StorageLocationLoadStore};
 use crate::storage_location::{StorageLocation, STORAGE_LOCATION_SERIALIZED_SIZE};
-use crate::version_sync::PersistedLocationHandler;
+use crate::version_sync::VersionSyncHandle;
 use crate::Result;
 
 use chrono::Utc;
@@ -21,14 +21,14 @@ use std::sync::{Arc, RwLock};
 
 #[derive(Debug)]
 pub struct AppendLog<TypeStore: LoadStore> {
-    persisted_sync: PersistedLocationHandler,
+    persisted_sync: Arc<RwLock<VersionSyncHandle>>,
     file_path: PathBuf,
     file_pattern: String,
     file_fill_size: u64,
     write_to_file: Option<File>,
     write_pos: u64,
     write_file_counter: u32,
-    index_log: Arc<RwLock<FixedAppendLog<StorageLocationLoadStore>>>,
+    index_log: FixedAppendLog<StorageLocationLoadStore>,
     _type_store: TypeStore,
 }
 
@@ -64,7 +64,7 @@ fn load_from_file<TypeStore: LoadStore>(
     TypeStore::load(&buffer[..])
 }
 
-impl<TypeStore: 'static + LoadStore + Default> AppendLog<TypeStore> {
+impl<TypeStore: LoadStore + Default> AppendLog<TypeStore> {
     pub(crate) fn open_impl(
         loader: &mut AtomicStoreLoader,
         location: Option<StorageLocation>,
@@ -75,13 +75,12 @@ impl<TypeStore: 'static + LoadStore + Default> AppendLog<TypeStore> {
         let index_pattern = format_index_file_pattern(file_pattern);
         let (write_pos, counter, index_log) = match location {
             Some(ref location) => {
-                let index_log: Arc<RwLock<FixedAppendLog<StorageLocationLoadStore>>> =
-                    FixedAppendLog::load(
-                        loader,
-                        &index_pattern,
-                        STORAGE_LOCATION_SERIALIZED_SIZE,
-                        256,
-                    )?;
+                let index_log: FixedAppendLog<StorageLocationLoadStore> = FixedAppendLog::load(
+                    loader,
+                    &index_pattern,
+                    STORAGE_LOCATION_SERIALIZED_SIZE,
+                    256,
+                )?;
                 let append_point = location.store_start + location.store_length as u64;
                 if append_point < file_fill_size {
                     (append_point, location.file_counter, index_log)
@@ -90,19 +89,18 @@ impl<TypeStore: 'static + LoadStore + Default> AppendLog<TypeStore> {
                 }
             }
             None => {
-                let index_log: Arc<RwLock<FixedAppendLog<StorageLocationLoadStore>>> =
-                    FixedAppendLog::create(
-                        loader,
-                        &index_pattern,
-                        STORAGE_LOCATION_SERIALIZED_SIZE,
-                        256,
-                    )?;
+                let index_log: FixedAppendLog<StorageLocationLoadStore> = FixedAppendLog::create(
+                    loader,
+                    &index_pattern,
+                    STORAGE_LOCATION_SERIALIZED_SIZE,
+                    256,
+                )?;
                 (0, 0, index_log)
             }
         };
 
         Ok(AppendLog {
-            persisted_sync: PersistedLocationHandler::new(location),
+            persisted_sync: Arc::new(RwLock::new(VersionSyncHandle::new(file_pattern, location))),
             file_path: file_path.to_path_buf(),
             file_pattern: String::from(file_pattern),
             file_fill_size,
@@ -118,33 +116,21 @@ impl<TypeStore: 'static + LoadStore + Default> AppendLog<TypeStore> {
         loader: &mut AtomicStoreLoader,
         file_pattern: &str,
         file_fill_size: u64,
-    ) -> Result<Arc<RwLock<AppendLog<TypeStore>>>> {
+    ) -> Result<AppendLog<TypeStore>> {
         let resource = loader.look_up_resource(file_pattern);
         let path = loader.persistence_path().to_path_buf();
-        let created = Arc::new(RwLock::new(Self::open_impl(
-            loader,
-            resource,
-            &path,
-            file_pattern,
-            file_fill_size,
-        )?));
-        loader.add_resource_handle(file_pattern, created.clone())?;
+        let created = Self::open_impl(loader, resource, &path, file_pattern, file_fill_size)?;
+        loader.add_sync_handle(file_pattern, created.persisted_sync.clone())?;
         Ok(created)
     }
     pub fn create(
         loader: &mut AtomicStoreLoader,
         file_pattern: &str,
         file_fill_size: u64,
-    ) -> Result<Arc<RwLock<AppendLog<TypeStore>>>> {
+    ) -> Result<AppendLog<TypeStore>> {
         let path = loader.persistence_path().to_path_buf();
-        let created = Arc::new(RwLock::new(Self::open_impl(
-            loader,
-            None,
-            &path,
-            file_pattern,
-            file_fill_size,
-        )?));
-        loader.add_resource_handle(file_pattern, created.clone())?;
+        let created = Self::open_impl(loader, None, &path, file_pattern, file_fill_size)?;
+        loader.add_sync_handle(file_pattern, created.persisted_sync.clone())?;
         Ok(created)
     }
 
@@ -218,27 +204,25 @@ impl<TypeStore: 'static + LoadStore + Default> AppendLog<TypeStore> {
             self.write_file_counter += 1;
             self.write_to_file = None;
         }
-        self.index_log.write()?.store_resource(&location)?;
-        self.persisted_sync.advance_next(Some(location));
+        self.index_log.store_resource(&location)?;
+        self.persisted_sync.write()?.advance_next(Some(location));
         Ok(location)
     }
 
     // This currenty won't have any effect if called again before the atomic store has processed the prior committed version. A more appropriate behavior might be to block. A version that supports queued writes could enqueue the commit points.
     pub fn commit_version(&mut self) -> Result<()> {
-        self.index_log.write()?.commit_version()?;
-        self.persisted_sync.update_version();
-        Ok(())
+        self.index_log.commit_version()?;
+        self.persisted_sync.write()?.update_version()
     }
 
     pub fn skip_version(&mut self) -> Result<()> {
-        self.index_log.write()?.skip_version()?;
-        self.persisted_sync.skip_version();
-        Ok(())
+        self.index_log.skip_version()?;
+        self.persisted_sync.write()?.skip_version()
     }
 
     // Opens a new handle to the file. Possibly need to revisit in the future?
     pub fn load_latest(&self) -> Result<TypeStore::ParamType> {
-        if let Some(location) = self.persisted_sync.last_location() {
+        if let Some(location) = self.persisted_sync.read()?.last_location() {
             self.load_specified(location)
         } else {
             Err(PersistenceError::FailedToFindExpectedResource {
@@ -255,7 +239,7 @@ impl<TypeStore: 'static + LoadStore + Default> AppendLog<TypeStore> {
 
     pub fn iter(&self) -> Iter<TypeStore> {
         Iter {
-            inner_iter: self.index_log.read().unwrap().iter(),
+            inner_iter: self.index_log.iter(),
             file_path: self.file_path.clone(),
             file_pattern: self.file_pattern.clone(),
             read_from_file: None,
@@ -306,21 +290,5 @@ impl<TypeStore: LoadStore> Iterator for Iter<TypeStore> {
 impl<TypeStore: LoadStore> ExactSizeIterator for Iter<TypeStore> {
     fn len(&self) -> usize {
         self.inner_iter.len()
-    }
-}
-
-impl<TypeStore: LoadStore> PersistentStore for AppendLog<TypeStore> {
-    fn resource_key(&self) -> &str {
-        &self.file_pattern
-    }
-    fn persisted_location(&self) -> Option<StorageLocation> {
-        *self.persisted_sync.last_location()
-    }
-    fn wait_for_version(&self) -> Result<()> {
-        self.persisted_sync.wait_for_version();
-        Ok(())
-    }
-    fn start_next_version(&mut self) -> Result<()> {
-        self.persisted_sync.start_version()
     }
 }

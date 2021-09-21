@@ -1,11 +1,11 @@
-use crate::atomic_store::{AtomicStoreLoader, PersistentStore};
+use crate::atomic_store::AtomicStoreLoader;
 use crate::error::{
     PersistenceError, StdIoDirOpsError, StdIoOpenError, StdIoReadError, StdIoSeekError,
     StdIoWriteError,
 };
 use crate::load_store::LoadStore;
 use crate::storage_location::StorageLocation;
-use crate::version_sync::PersistedLocationHandler;
+use crate::version_sync::VersionSyncHandle;
 use crate::Result;
 
 use chrono::Utc;
@@ -19,7 +19,7 @@ use std::sync::{Arc, RwLock};
 
 #[derive(Debug)]
 pub struct RollingLog<TypeStore: LoadStore> {
-    persisted_sync: PersistedLocationHandler,
+    persisted_sync: Arc<RwLock<VersionSyncHandle>>,
     file_path: PathBuf,
     file_pattern: String,
     file_fill_size: u64,
@@ -29,7 +29,7 @@ pub struct RollingLog<TypeStore: LoadStore> {
     _type_store: TypeStore,
 }
 
-impl<TypeStore: 'static + LoadStore + Default> RollingLog<TypeStore> {
+impl<TypeStore: LoadStore + Default> RollingLog<TypeStore> {
     pub(crate) fn open_impl(
         location: Option<StorageLocation>,
         file_path: &Path,
@@ -48,7 +48,7 @@ impl<TypeStore: 'static + LoadStore + Default> RollingLog<TypeStore> {
             None => (0, 0),
         };
         Ok(RollingLog {
-            persisted_sync: PersistedLocationHandler::new(location),
+            persisted_sync: Arc::new(RwLock::new(VersionSyncHandle::new(file_pattern, location))),
             file_path: file_path.to_path_buf(),
             file_pattern: String::from(file_pattern),
             file_fill_size,
@@ -63,28 +63,28 @@ impl<TypeStore: 'static + LoadStore + Default> RollingLog<TypeStore> {
         loader: &mut AtomicStoreLoader,
         file_pattern: &str,
         file_fill_size: u64,
-    ) -> Result<Arc<RwLock<RollingLog<TypeStore>>>> {
-        let created = Arc::new(RwLock::new(Self::open_impl(
+    ) -> Result<RollingLog<TypeStore>> {
+        let created = Self::open_impl(
             loader.look_up_resource(file_pattern),
             loader.persistence_path(),
             file_pattern,
             file_fill_size,
-        )?));
-        loader.add_resource_handle(file_pattern, created.clone())?;
+        )?;
+        loader.add_sync_handle(file_pattern, created.persisted_sync.clone())?;
         Ok(created)
     }
     pub fn create(
         loader: &mut AtomicStoreLoader,
         file_pattern: &str,
         file_fill_size: u64,
-    ) -> Result<Arc<RwLock<RollingLog<TypeStore>>>> {
-        let created = Arc::new(RwLock::new(Self::open_impl(
+    ) -> Result<RollingLog<TypeStore>> {
+        let created = Self::open_impl(
             None,
             loader.persistence_path(),
             file_pattern,
             file_fill_size,
-        )?));
-        loader.add_resource_handle(file_pattern, created.clone())?;
+        )?;
+        loader.add_sync_handle(file_pattern, created.persisted_sync.clone())?;
         Ok(created)
     }
 
@@ -160,22 +160,22 @@ impl<TypeStore: 'static + LoadStore + Default> RollingLog<TypeStore> {
             self.write_file_counter += 1;
             self.write_to_file = None;
         }
-        self.persisted_sync.advance_next(Some(location));
+        self.persisted_sync.write()?.advance_next(Some(location));
         Ok(location)
     }
 
     // This currenty won't have any effect if called again before the atomic store has processed the prior committed version. A more appropriate behavior might be to block. A version that supports queued writes could enqueue the commit points.
-    pub fn commit_version(&mut self) {
-        self.persisted_sync.update_version();
+    pub fn commit_version(&mut self) -> Result<()> {
+        self.persisted_sync.write()?.update_version()
     }
 
-    pub fn skip_version(&mut self) {
-        self.persisted_sync.skip_version();
+    pub fn skip_version(&mut self) -> Result<()> {
+        self.persisted_sync.write()?.skip_version()
     }
 
     // Opens a new handle to the file. Possibly need to revisit in the future?
     pub fn load_latest(&self) -> Result<TypeStore::ParamType> {
-        if let Some(location) = self.persisted_sync.last_location() {
+        if let Some(location) = self.persisted_sync.read()?.last_location() {
             self.load_specified(location)
         } else {
             Err(PersistenceError::FailedToFindExpectedResource {
@@ -194,21 +194,5 @@ impl<TypeStore: 'static + LoadStore + Default> RollingLog<TypeStore> {
         let mut buffer = Vec::new();
         reader.read_to_end(&mut buffer).context(StdIoReadError)?;
         TypeStore::load(&buffer[..])
-    }
-}
-
-impl<TypeStore: LoadStore> PersistentStore for RollingLog<TypeStore> {
-    fn resource_key(&self) -> &str {
-        &self.file_pattern
-    }
-    fn persisted_location(&self) -> Option<StorageLocation> {
-        *self.persisted_sync.last_location()
-    }
-    fn wait_for_version(&self) -> Result<()> {
-        self.persisted_sync.wait_for_version();
-        Ok(())
-    }
-    fn start_next_version(&mut self) -> Result<()> {
-        self.persisted_sync.start_version()
     }
 }
