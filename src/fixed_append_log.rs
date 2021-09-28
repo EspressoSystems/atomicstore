@@ -41,6 +41,7 @@ fn load_existing_index(index_file_path: &Path) -> Result<IndexContents> {
     if metadata.len() < 16 {
         // file doesn't contain a minimal IndexContents
         return Err(PersistenceError::InvalidFileContents {
+            note: "file doesn't contain a minimal IndexContents".to_string(),
             path: index_file_path.to_string_lossy().to_string(),
         });
     }
@@ -56,6 +57,7 @@ fn load_existing_index(index_file_path: &Path) -> Result<IndexContents> {
         });
     } else if contents.byte_order != BYTE_ORDER {
         return Err(PersistenceError::InvalidFileContents {
+            note: "invalid index byte order mark".to_string(),
             path: index_file_path.to_string_lossy().to_string(),
         });
     }
