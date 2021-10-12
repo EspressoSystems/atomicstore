@@ -224,6 +224,12 @@ impl<ResourceType: LoadStore> AppendLog<ResourceType> {
         self.persisted_sync.write()?.skip_version()
     }
 
+    pub fn revert_version(&mut self) -> Result<()> {
+        self.index_log.revert_version()?;
+        self.write_to_file = None;
+        self.persisted_sync.write()?.revert_version()
+    }
+
     // Opens a new handle to the file. Possibly need to revisit in the future?
     pub fn load_latest(&self) -> Result<ResourceType::ParamType> {
         if let Some(location) = self.persisted_sync.read()?.last_location() {

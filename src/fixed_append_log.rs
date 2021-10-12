@@ -343,6 +343,11 @@ impl<ResourceType: LoadStore + Default> FixedAppendLog<ResourceType> {
         self.persisted_sync.write()?.skip_version()
     }
 
+    pub fn revert_version(&mut self) -> Result<()> {
+        self.write_to_file = None;
+        self.persisted_sync.write()?.revert_version()
+    }
+
     // these function as an alternative to the LogLoader, based on external (StorageLocation) addressing.
     pub fn load_latest(&self) -> Result<ResourceType::ParamType> {
         if let Some(location) = self.persisted_sync.read()?.last_location() {

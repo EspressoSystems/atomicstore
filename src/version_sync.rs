@@ -57,6 +57,12 @@ impl VersionSyncHandle {
         }
         Ok(())
     }
+    pub fn revert_version(&mut self) -> Result<()> {
+        let (mtx, _cv) = &*self.version_pending;
+        let _version_ready = mtx.lock()?;
+        self.next_version_location = self.last_version_location;
+        Ok(())
+    }
 
     pub fn wait_for_version(&self) -> Result<()> {
         let version_pending = Arc::clone(&self.version_pending);
