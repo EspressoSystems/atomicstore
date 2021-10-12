@@ -16,12 +16,11 @@ use snafu::ResultExt;
 use std::fs;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 #[derive(Debug)]
-pub struct AppendLog<ResourceType: LoadStore> {
+pub struct AppendLog<ResourceAdaptor: LoadStore> {
     persisted_sync: Arc<RwLock<VersionSyncHandle>>,
     file_path: PathBuf,
     file_pattern: String,
@@ -30,16 +29,16 @@ pub struct AppendLog<ResourceType: LoadStore> {
     write_pos: u64,
     write_file_counter: u32,
     index_log: FixedAppendLog<StorageLocationLoadStore>,
-    phantom: PhantomData<ResourceType>,
+    adaptor: ResourceAdaptor,
 }
 
-pub struct Iter<ResourceType: LoadStore> {
-    inner_iter: fixed_append_log::Iter<StorageLocationLoadStore>,
+pub struct Iter<'a, ResourceAdaptor: LoadStore> {
+    inner_iter: fixed_append_log::Iter<'a, StorageLocationLoadStore>,
     file_path: PathBuf,
     file_pattern: String,
     read_from_file: Option<File>,
     read_from_counter: u32,
-    phantom: PhantomData<ResourceType>,
+    adaptor: &'a ResourceAdaptor,
 }
 
 fn format_index_file_pattern(file_pattern: &str) -> String {
@@ -52,32 +51,35 @@ fn format_nth_file_path(root_path: &Path, file_pattern: &str, file_count: u32) -
     buf
 }
 
-fn load_from_file<ResourceType: LoadStore>(
+fn load_from_file<ResourceAdaptor: LoadStore>(
     read_file: &mut File,
+    adaptor: &ResourceAdaptor,
     location: &StorageLocation,
-) -> Result<ResourceType::ParamType> {
+) -> Result<ResourceAdaptor::ParamType> {
     read_file
         .seek(SeekFrom::Start(location.store_start))
         .context(StdIoSeekError)?;
     let mut reader = read_file.take(location.store_length as u64);
     let mut buffer = Vec::new();
     reader.read_to_end(&mut buffer).context(StdIoReadError)?;
-    ResourceType::load(&buffer[..])
+    adaptor.load(&buffer[..])
 }
 
-impl<ResourceType: LoadStore> AppendLog<ResourceType> {
+impl<ResourceAdaptor: LoadStore> AppendLog<ResourceAdaptor> {
     pub(crate) fn open_impl(
         loader: &mut AtomicStoreLoader,
+        adaptor: ResourceAdaptor,
         location: Option<StorageLocation>,
         file_path: &Path,
         file_pattern: &str,
         file_fill_size: u64,
-    ) -> Result<AppendLog<ResourceType>> {
+    ) -> Result<AppendLog<ResourceAdaptor>> {
         let index_pattern = format_index_file_pattern(file_pattern);
         let (write_pos, counter, index_log) = match location {
             Some(ref location) => {
                 let index_log: FixedAppendLog<StorageLocationLoadStore> = FixedAppendLog::load(
                     loader,
+                    StorageLocationLoadStore::default(),
                     &index_pattern,
                     STORAGE_LOCATION_SERIALIZED_SIZE,
                     256,
@@ -92,6 +94,7 @@ impl<ResourceType: LoadStore> AppendLog<ResourceType> {
             None => {
                 let index_log: FixedAppendLog<StorageLocationLoadStore> = FixedAppendLog::create(
                     loader,
+                    StorageLocationLoadStore::default(),
                     &index_pattern,
                     STORAGE_LOCATION_SERIALIZED_SIZE,
                     256,
@@ -109,28 +112,37 @@ impl<ResourceType: LoadStore> AppendLog<ResourceType> {
             write_pos,
             write_file_counter: counter,
             index_log,
-            phantom: PhantomData,
+            adaptor,
         })
     }
 
     pub fn load(
         loader: &mut AtomicStoreLoader,
+        adaptor: ResourceAdaptor,
         file_pattern: &str,
         file_fill_size: u64,
-    ) -> Result<AppendLog<ResourceType>> {
+    ) -> Result<AppendLog<ResourceAdaptor>> {
         let resource = loader.look_up_resource(file_pattern);
         let path = loader.persistence_path().to_path_buf();
-        let created = Self::open_impl(loader, resource, &path, file_pattern, file_fill_size)?;
+        let created = Self::open_impl(
+            loader,
+            adaptor,
+            resource,
+            &path,
+            file_pattern,
+            file_fill_size,
+        )?;
         loader.add_sync_handle(file_pattern, created.persisted_sync.clone())?;
         Ok(created)
     }
     pub fn create(
         loader: &mut AtomicStoreLoader,
+        adaptor: ResourceAdaptor,
         file_pattern: &str,
         file_fill_size: u64,
-    ) -> Result<AppendLog<ResourceType>> {
+    ) -> Result<AppendLog<ResourceAdaptor>> {
         let path = loader.persistence_path().to_path_buf();
-        let created = Self::open_impl(loader, None, &path, file_pattern, file_fill_size)?;
+        let created = Self::open_impl(loader, adaptor, None, &path, file_pattern, file_fill_size)?;
         loader.add_sync_handle(file_pattern, created.persisted_sync.clone())?;
         Ok(created)
     }
@@ -183,12 +195,12 @@ impl<ResourceType: LoadStore> AppendLog<ResourceType> {
     // In the future, we may support a queue of commit points, or even entire sequences of pre-written alternative future versions (for chained consensus), which would require a more complex interface.
     pub fn store_resource(
         &mut self,
-        resource: &ResourceType::ParamType,
+        resource: &ResourceAdaptor::ParamType,
     ) -> Result<StorageLocation> {
         if self.write_to_file.is_none() {
             self.open_write_file()?;
         }
-        let serialized = ResourceType::store(resource)?;
+        let serialized = self.adaptor.store(resource)?;
         let resource_length = serialized.len() as u32;
         self.write_to_file
             .as_ref()
@@ -231,7 +243,7 @@ impl<ResourceType: LoadStore> AppendLog<ResourceType> {
     }
 
     // Opens a new handle to the file. Possibly need to revisit in the future?
-    pub fn load_latest(&self) -> Result<ResourceType::ParamType> {
+    pub fn load_latest(&self) -> Result<ResourceAdaptor::ParamType> {
         if let Some(location) = self.persisted_sync.read()?.last_location() {
             self.load_specified(location)
         } else {
@@ -240,27 +252,27 @@ impl<ResourceType: LoadStore> AppendLog<ResourceType> {
             })
         }
     }
-    pub fn load_specified(&self, location: &StorageLocation) -> Result<ResourceType::ParamType> {
+    pub fn load_specified(&self, location: &StorageLocation) -> Result<ResourceAdaptor::ParamType> {
         let read_file_path =
             format_nth_file_path(&self.file_path, &self.file_pattern, location.file_counter);
         let mut read_file = File::open(read_file_path.as_path()).context(StdIoOpenError)?;
-        load_from_file::<ResourceType>(&mut read_file, location)
+        load_from_file::<ResourceAdaptor>(&mut read_file, &self.adaptor, location)
     }
 
-    pub fn iter(&self) -> Iter<ResourceType> {
+    pub fn iter(&self) -> Iter<ResourceAdaptor> {
         Iter {
             inner_iter: self.index_log.iter(),
             file_path: self.file_path.clone(),
             file_pattern: self.file_pattern.clone(),
             read_from_file: None,
             read_from_counter: 0,
-            phantom: PhantomData,
+            adaptor: &self.adaptor,
         }
     }
 }
 
-impl<ResourceType: LoadStore> Iter<ResourceType> {
-    fn helper(&mut self, location: &StorageLocation) -> Result<ResourceType::ParamType> {
+impl<ResourceAdaptor: LoadStore> Iter<'_, ResourceAdaptor> {
+    fn helper(&mut self, location: &StorageLocation) -> Result<ResourceAdaptor::ParamType> {
         if location.file_counter != self.read_from_counter {
             self.read_from_file = None;
         }
@@ -271,12 +283,16 @@ impl<ResourceType: LoadStore> Iter<ResourceType> {
             self.read_from_file =
                 Some(File::open(read_file_path.as_path()).context(StdIoOpenError)?);
         }
-        load_from_file::<ResourceType>(&mut self.read_from_file.as_mut().unwrap(), location)
+        load_from_file::<ResourceAdaptor>(
+            &mut self.read_from_file.as_mut().unwrap(),
+            self.adaptor,
+            location,
+        )
     }
 }
 
-impl<ResourceType: LoadStore> Iterator for Iter<ResourceType> {
-    type Item = Result<ResourceType::ParamType>;
+impl<ResourceAdaptor: LoadStore> Iterator for Iter<'_, ResourceAdaptor> {
+    type Item = Result<ResourceAdaptor::ParamType>;
 
     fn next(&mut self) -> Option<Self::Item> {
         Some(
@@ -297,7 +313,7 @@ impl<ResourceType: LoadStore> Iterator for Iter<ResourceType> {
     }
 }
 
-impl<ResourceType: LoadStore> ExactSizeIterator for Iter<ResourceType> {
+impl<ResourceAdaptor: LoadStore> ExactSizeIterator for Iter<'_, ResourceAdaptor> {
     fn len(&self) -> usize {
         self.inner_iter.len()
     }

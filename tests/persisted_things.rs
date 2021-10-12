@@ -58,12 +58,24 @@ fn single_threaded_create_and_populate() -> Result<()> {
 
     let mut store_loader =
         AtomicStoreLoader::create(test_path.as_path(), "persisted_things_store")?;
-    let mut persisted_a =
-        AppendLog::<BincodeLoadStore<ThingA>>::create(&mut store_loader, "a_store", 1024)?;
-    let mut persisted_b =
-        AppendLog::<BincodeLoadStore<ThingB>>::create(&mut store_loader, "b_store", 16)?;
-    let mut persisted_c =
-        RollingLog::<BincodeLoadStore<ThingC>>::create(&mut store_loader, "c_store", 16)?;
+    let mut persisted_a = AppendLog::create(
+        &mut store_loader,
+        <BincodeLoadStore<ThingA>>::default(),
+        "a_store",
+        1024,
+    )?;
+    let mut persisted_b = AppendLog::create(
+        &mut store_loader,
+        <BincodeLoadStore<ThingB>>::default(),
+        "b_store",
+        16,
+    )?;
+    let mut persisted_c = RollingLog::create(
+        &mut store_loader,
+        <BincodeLoadStore<ThingC>>::default(),
+        "c_store",
+        16,
+    )?;
 
     let mut atomic_store = AtomicStore::open(store_loader)?;
 
@@ -191,12 +203,24 @@ fn single_threaded_load_from_files() -> Result<()> {
     test_path.push("testing_tmp");
 
     let mut store_loader = AtomicStoreLoader::load(test_path.as_path(), "persisted_things_store")?;
-    let mut persisted_a =
-        AppendLog::<BincodeLoadStore<ThingA>>::load(&mut store_loader, "a_store", 1024)?;
-    let mut persisted_b =
-        AppendLog::<BincodeLoadStore<ThingB>>::load(&mut store_loader, "b_store", 16)?;
-    let mut persisted_c =
-        RollingLog::<BincodeLoadStore<ThingC>>::load(&mut store_loader, "c_store", 16)?;
+    let mut persisted_a = AppendLog::load(
+        &mut store_loader,
+        <BincodeLoadStore<ThingA>>::default(),
+        "a_store",
+        1024,
+    )?;
+    let mut persisted_b = AppendLog::load(
+        &mut store_loader,
+        <BincodeLoadStore<ThingB>>::default(),
+        "b_store",
+        16,
+    )?;
+    let mut persisted_c = RollingLog::load(
+        &mut store_loader,
+        <BincodeLoadStore<ThingC>>::default(),
+        "c_store",
+        16,
+    )?;
 
     let mut atomic_store = AtomicStore::open(store_loader)?;
 

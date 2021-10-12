@@ -11,8 +11,8 @@ use std::marker::PhantomData;
 pub trait LoadStore: Default {
     type ParamType;
 
-    fn load(stream: &[u8]) -> Result<Self::ParamType>;
-    fn store(param: &Self::ParamType) -> Result<Vec<u8>>;
+    fn load(&self, stream: &[u8]) -> Result<Self::ParamType>;
+    fn store(&mut self, param: &Self::ParamType) -> Result<Vec<u8>>;
 }
 
 #[derive(Debug)]
@@ -23,10 +23,10 @@ pub struct BincodeLoadStore<ParamType: Serialize + DeserializeOwned> {
 impl<ParamType: Serialize + DeserializeOwned> LoadStore for BincodeLoadStore<ParamType> {
     type ParamType = ParamType;
 
-    fn load(stream: &[u8]) -> Result<Self::ParamType> {
+    fn load(&self, stream: &[u8]) -> Result<Self::ParamType> {
         bincode::deserialize(stream).context(BincodeDeError)
     }
-    fn store(param: &Self::ParamType) -> Result<Vec<u8>> {
+    fn store(&mut self, param: &Self::ParamType) -> Result<Vec<u8>> {
         bincode::serialize(param).context(BincodeSerError)
     }
 }
@@ -47,10 +47,10 @@ pub struct ArkLoadStore<ParamType: CanonicalSerialize + CanonicalDeserialize> {
 impl<ParamType: CanonicalSerialize + CanonicalDeserialize> LoadStore for ArkLoadStore<ParamType> {
     type ParamType = ParamType;
 
-    fn load(stream: &[u8]) -> Result<Self::ParamType> {
+    fn load(&self, stream: &[u8]) -> Result<Self::ParamType> {
         Self::ParamType::deserialize(stream).map_err(|err| PersistenceError::ArkDeError { err })
     }
-    fn store(param: &Self::ParamType) -> Result<Vec<u8>> {
+    fn store(&mut self, param: &Self::ParamType) -> Result<Vec<u8>> {
         let mut ser_bytes: Vec<u8> = Vec::new();
         param
             .serialize(&mut ser_bytes)
