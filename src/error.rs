@@ -80,6 +80,12 @@ pub enum PersistenceError {
     ArkDeError {
         err: ark_serialize::SerializationError,
     },
+    OtherStoreError {
+        inner: Box<dyn std::error::Error + Send + Sync>,
+    },
+    OtherLoadError {
+        inner: Box<dyn std::error::Error + Send + Sync>,
+    },
     /// Glob syntax error
     GlobSyntax { source: glob::PatternError },
     /// Glob iteration error
