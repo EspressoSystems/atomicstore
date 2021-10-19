@@ -29,6 +29,7 @@ pub enum PersistenceError {
     /// Path to file is invalid
     #[snafu(display("File {:?} does not contain valid data", path))]
     InvalidFileContents {
+        note: String,
         /// The provided path
         path: String,
     },
