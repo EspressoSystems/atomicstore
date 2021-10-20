@@ -322,9 +322,9 @@ impl<ResourceAdaptor: LoadStore> ExactSizeIterator for Iter<'_, ResourceAdaptor>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{load_store::BincodeLoadStore, AtomicStore, AtomicStoreLoader};
     use serde::{Deserialize, Serialize};
     use std::env;
-    use crate::{AtomicStoreLoader, AtomicStore, load_store::BincodeLoadStore};
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct Thing {

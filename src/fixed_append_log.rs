@@ -94,10 +94,13 @@ fn format_range_file_path(
 }
 
 fn compute_location(from_index: &IndexContents) -> StorageLocation {
-    let commit_start = if from_index.commit_index == 0 { 0 } else { from_index.commit_index - 1 };
+    let commit_start = if from_index.commit_index == 0 {
+        0
+    } else {
+        from_index.commit_index - 1
+    };
     StorageLocation {
-        store_start: (commit_start % from_index.file_size) as u64
-            * from_index.chunk_size as u64,
+        store_start: (commit_start % from_index.file_size) as u64 * from_index.chunk_size as u64,
         store_length: from_index.chunk_size,
         file_counter: (commit_start / from_index.file_size),
     }
@@ -113,7 +116,7 @@ pub struct FixedAppendLog<ResourceAdaptor: LoadStore> {
     file_size: u64, // number of ResourceAdaptor::ParamType serializations per file; must not change, will check on load.
     write_to_file: Option<File>,
     commit_index: u64, // index one past the last commit
-    write_index: u64, // other indexes can be derived.
+    write_index: u64,  // other indexes can be derived.
     adaptor: ResourceAdaptor,
 }
 
@@ -472,9 +475,9 @@ impl<ResourceAdaptor: LoadStore> ExactSizeIterator for Iter<'_, ResourceAdaptor>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{load_store::BincodeLoadStore, AtomicStore, AtomicStoreLoader};
     use serde::{Deserialize, Serialize};
     use std::env;
-    use crate::{AtomicStoreLoader, AtomicStore, load_store::BincodeLoadStore};
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct Thing {
