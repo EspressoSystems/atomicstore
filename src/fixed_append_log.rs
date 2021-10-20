@@ -94,11 +94,12 @@ fn format_range_file_path(
 }
 
 fn compute_location(from_index: &IndexContents) -> StorageLocation {
+    let commit_start = if from_index.commit_index == 0 { 0 } else { from_index.commit_index - 1 };
     StorageLocation {
-        store_start: (from_index.commit_index % from_index.file_size) as u64
+        store_start: (commit_start % from_index.file_size) as u64
             * from_index.chunk_size as u64,
         store_length: from_index.chunk_size,
-        file_counter: (from_index.commit_index / from_index.file_size),
+        file_counter: (commit_start / from_index.file_size),
     }
 }
 
@@ -111,7 +112,7 @@ pub struct FixedAppendLog<ResourceAdaptor: LoadStore> {
     resource_size: u64, // must match ResourceAdaptor::ParamType serialized size.
     file_size: u64, // number of ResourceAdaptor::ParamType serializations per file; must not change, will check on load.
     write_to_file: Option<File>,
-    commit_index: u64,
+    commit_index: u64, // index one past the last commit
     write_index: u64, // other indexes can be derived.
     adaptor: ResourceAdaptor,
 }
@@ -161,7 +162,7 @@ impl<ResourceAdaptor: LoadStore + Default> FixedAppendLog<ResourceAdaptor> {
             let indexed_location = compute_location(&index_contents);
             if indexed_location != location {}
             commit_index = index_contents.commit_index as u64;
-            write_index = commit_index + 1;
+            write_index = commit_index;
         } else {
             commit_index = 0u64;
             write_index = 0u64;
@@ -317,7 +318,7 @@ impl<ResourceAdaptor: LoadStore + Default> FixedAppendLog<ResourceAdaptor> {
         let backup_file_path = format_backup_index_file_path(&self.file_path, &self.file_pattern);
         let working_file_path = format_working_index_file_path(&self.file_path, &self.file_pattern);
 
-        self.commit_index = self.write_index - 1; // revisit if adding support for longer pending chains
+        self.commit_index = self.write_index;
 
         let contents = IndexContents {
             byte_order: BYTE_ORDER,
@@ -349,6 +350,7 @@ impl<ResourceAdaptor: LoadStore + Default> FixedAppendLog<ResourceAdaptor> {
 
     pub fn revert_version(&mut self) -> Result<()> {
         self.write_to_file = None;
+        self.write_index = self.commit_index;
         self.persisted_sync.write()?.revert_version()
     }
 
@@ -395,7 +397,7 @@ impl<ResourceAdaptor: LoadStore + Default> FixedAppendLog<ResourceAdaptor> {
             file_size: self.file_size,
             read_from_file: None,
             from_index: 0,
-            end_index: self.commit_index + 1,
+            end_index: self.commit_index,
             adaptor: &self.adaptor,
         }
     }
@@ -464,5 +466,50 @@ impl<ResourceAdaptor: LoadStore> Iterator for Iter<'_, ResourceAdaptor> {
 impl<ResourceAdaptor: LoadStore> ExactSizeIterator for Iter<'_, ResourceAdaptor> {
     fn len(&self) -> usize {
         (self.end_index - self.from_index) as usize
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::{Deserialize, Serialize};
+    use std::env;
+    use crate::{AtomicStoreLoader, AtomicStore, load_store::BincodeLoadStore};
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct Thing {
+        t1: i64,
+        t2: i64,
+    }
+
+    #[test]
+    fn empty_iterator() -> Result<()> {
+        let mut test_path =
+            env::current_dir().map_err(|e| PersistenceError::StdIoDirOpsError { source: e })?;
+        test_path.push("testing_tmp");
+        let mut store_loader =
+            AtomicStoreLoader::create(test_path.as_path(), "fixed_append_log_test_empty_iterator")?;
+        let mut persisted_thing = FixedAppendLog::create(
+            &mut store_loader,
+            <BincodeLoadStore<Thing>>::default(),
+            "fixed_append_thing",
+            16,
+            1024,
+        )?;
+        let _atomic_store = AtomicStore::open(store_loader)?;
+        let iter = persisted_thing.iter().next();
+        assert!(iter.is_none());
+
+        let thing = Thing { t1: 0, t2: 0 };
+        let _location = persisted_thing.store_resource(&thing).unwrap();
+
+        let iter = persisted_thing.iter().next();
+        assert!(iter.is_none());
+
+        persisted_thing.revert_version().unwrap();
+        let iter = persisted_thing.iter().next();
+        assert!(iter.is_none());
+
+        Ok(())
     }
 }
