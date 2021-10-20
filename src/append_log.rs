@@ -318,3 +318,47 @@ impl<ResourceAdaptor: LoadStore> ExactSizeIterator for Iter<'_, ResourceAdaptor>
         self.inner_iter.len()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{load_store::BincodeLoadStore, AtomicStore, AtomicStoreLoader};
+    use serde::{Deserialize, Serialize};
+    use std::env;
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct Thing {
+        t1: i64,
+        t2: i64,
+    }
+
+    #[test]
+    fn empty_iterator() -> Result<()> {
+        let mut test_path =
+            env::current_dir().map_err(|e| PersistenceError::StdIoDirOpsError { source: e })?;
+        test_path.push("testing_tmp");
+        let mut store_loader =
+            AtomicStoreLoader::create(test_path.as_path(), "append_log_test_empty_iterator")?;
+        let mut persisted_thing = AppendLog::create(
+            &mut store_loader,
+            <BincodeLoadStore<Thing>>::default(),
+            "append_thing",
+            1024,
+        )?;
+        let _atomic_store = AtomicStore::open(store_loader)?;
+        let iter = persisted_thing.iter().next();
+        assert!(iter.is_none());
+
+        let thing = Thing { t1: 0, t2: 0 };
+        let _location = persisted_thing.store_resource(&thing).unwrap();
+
+        let iter = persisted_thing.iter().next();
+        assert!(iter.is_none());
+
+        persisted_thing.revert_version().unwrap();
+        let iter = persisted_thing.iter().next();
+        assert!(iter.is_none());
+
+        Ok(())
+    }
+}
