@@ -406,7 +406,7 @@ impl<ResourceAdaptor: LoadStore + Default> FixedAppendLog<ResourceAdaptor> {
     }
 }
 
-impl<ResourceAdaptor: LoadStore + Default> Iter<'_, ResourceAdaptor> {
+impl<ResourceAdaptor: LoadStore> Iter<'_, ResourceAdaptor> {
     fn helper(&mut self) -> Result<ResourceAdaptor::ParamType> {
         let file_offset = self.from_index % self.file_size;
         let range_begin = self.from_index - file_offset;

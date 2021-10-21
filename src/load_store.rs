@@ -8,7 +8,7 @@ use snafu::ResultExt;
 
 use std::marker::PhantomData;
 
-pub trait LoadStore: Default {
+pub trait LoadStore {
     type ParamType;
 
     fn load(&self, stream: &[u8]) -> Result<Self::ParamType>;
