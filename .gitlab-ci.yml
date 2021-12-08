@@ -14,6 +14,8 @@ variables:
 before_script:
   - git config --global url."https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/".insteadOf git://gitlab.com
   - git config --global url."https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/".insteadOf ssh://git@gitlab.com
+  - git config --global url."https://ancient123:${GITHUB_ACCESS_TOKEN}@github.com/".insteadOf git://github.com
+  - git config --global url."https://ancient123:${GITHUB_ACCESS_TOKEN}@github.com/".insteadOf ssh://git@github.com
   - git config --global url."https://dl.cloudsmith.io/${CLOUDSMITH_ENTITLEMENT}/".insteadOf https://dl.cloudsmith.io/basic/
   - echo ""
 
@@ -47,14 +49,14 @@ lint:audit:
   tags:
     - docker
   script:
-    - cargo audit
+    - cargo audit --ignore RUSTSEC-2020-0159 --ignore RUSTSEC-2020-0071
   cache:
     key: "$CI_JOB_NAME-$CI_COMMIT_REF_SLUG"
     paths:
       - .cargo-home/
       - target/
   allow_failure: true
-  
+
 check:
   stage: check
   tags:
@@ -80,7 +82,7 @@ build:
     key: build-cache
     paths:
       - .cargo-home/
-      - target/    
+      - target/
 
 test:cargo:
   stage: test
@@ -116,4 +118,4 @@ pages:
     paths:
       - .cargo-home/
       - target/
-  
+
