@@ -136,10 +136,11 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
         }
         let mut file = OpenOptions::new()
             .read(true)
-            .append(true)
+            .write(true)
             .create(true)
             .open(out_file_path.clone())
             .context(StdIoOpenError)?;
+        file.seek(SeekFrom::End(0)).context(StdIoSeekError)?;
         self.file_entries = 0;
         if file.stream_position().context(StdIoSeekError)? == 0 {
             file.write_all(&[0u8; 4]).context(StdIoWriteError)?;

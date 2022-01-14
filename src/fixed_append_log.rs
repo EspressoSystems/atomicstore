@@ -274,10 +274,11 @@ impl<ResourceAdaptor: LoadStore + Default> FixedAppendLog<ResourceAdaptor> {
         }
         let mut file = OpenOptions::new()
             .read(true)
-            .append(true)
+            .write(true)
             .create(true)
             .open(out_file_path)
             .context(StdIoOpenError)?;
+        file.seek(SeekFrom::End(0)).context(StdIoSeekError)?;
         if file.stream_position().context(StdIoSeekError)? != write_pos {
             file.set_len(write_pos).context(StdIoWriteError)?;
             let _lines = file
