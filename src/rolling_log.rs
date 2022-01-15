@@ -160,6 +160,7 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
             while read_position < self.write_pos {
                 let mut buffer = [0u8; 4];
                 file.read_exact(&mut buffer).context(StdIoReadError)?;
+                read_position += 4;
                 let entry_size = u32::from_le_bytes(buffer);
                 read_position += entry_size as u64;
                 let _lines = file
