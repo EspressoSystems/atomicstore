@@ -247,7 +247,9 @@ struct LogDescription {
 
 impl quickcheck::Arbitrary for LogDescription {
     fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        // TODO: we should fix `file_fill_size == 0`
         let file_fill_size = core::cmp::max(1, <_>::arbitrary(g));
+        // let file_fill_size = <_>::arbitrary(g);
         let log_type = <_>::arbitrary(g);
         let data_rate = <_>::arbitrary(g);
         let size_dist = <_>::arbitrary(g);
@@ -267,6 +269,7 @@ impl quickcheck::Arbitrary for LogDescription {
         Box::new(
             self.file_fill_size
                 .shrink()
+                .filter(|x| *x >= 1)
                 .map((|self_arc: Arc<Self>| {
                     move |file_fill_size| -> Self {
                         let mut ret = (*self_arc).clone();
@@ -561,10 +564,14 @@ impl StorageRunner {
 
                 for log in self.logs.iter_mut() {
                     let mut log_prng = ChaChaRng::from_rng(&mut base_prng).unwrap();
-                    let num_resources = log.desc.data_rate.sample(&mut log_prng) / (1u32 << 28);
+                    let num_resources = log.desc.data_rate.sample(&mut log_prng) & ((1u32 << 4)-1);
                     for _ in 0..num_resources {
                         let buf_size =
-                            (log.desc.size_dist.sample(&mut log_prng) / (1u32 << 16)) as usize;
+                            (log.desc.size_dist.sample(&mut log_prng) & ((1u32 << 14)-1)) as usize;
+                        let buf_size = core::cmp::max(1,buf_size);
+
+                        println!("  writing {} bytes to {}",buf_size,log.name);
+
                         let mut buf = Vec::with_capacity(buf_size);
                         buf.resize(buf_size, 0);
                         log.desc.data_dist.sample(&mut log_prng, &mut buf);
@@ -659,6 +666,59 @@ fn store_test_scenario_regressions() {
     use DataDistribution::*;
     use SizeDistribution::*;
     use StorageAction::*;
+    use StorageType::*;
+
+    store_test_scenario(vec![
+        WriteData { seed: 0 },
+        Commit,
+        WriteData { seed: 0 },
+        Commit,
+        LoadLatest
+    ],
+    StoreDescription {
+        logs: vec![
+            ("".to_string(),
+            LogDescription {
+                file_fill_size: 18,
+                log_type: Rolling,
+                data_rate: Constant(1),
+                size_dist: Constant(0),
+                data_dist: U32Pattern(0, vec![])
+            })] }
+    );
+
+    // ([WriteData { seed: 0 }, Commit, Reconstruct, ReadData { i1: 0, i2: 0 }], StoreDescription { logs: [("", LogDescription { file_fill_size: 0, log_type: Append, data_rate: Constant(1), size_dist: Constant(0), data_dist: U32Pattern(0, []) })] })
+    store_test_scenario(
+        vec![
+         WriteData { seed: 0 },
+         Commit,
+         Reconstruct,
+         ReadData { i1: 0, i2: 0 }],
+        StoreDescription {
+            logs: vec![
+                ("".to_string(),
+                 LogDescription {
+                     file_fill_size: 0,
+                     log_type: Append,
+                     data_rate: Constant(1),
+                     size_dist: Constant(0),
+                     data_dist: U32Pattern(0, vec![]) })
+            ] });
+
+    store_test_scenario(
+        vec![WriteData { seed: 0 }, Commit, Reconstruct, LoadLatest],
+        StoreDescription {
+            logs: vec![
+                ("".to_string(),
+                 LogDescription {
+                     file_fill_size: 0,
+                     log_type: Append,
+                     data_rate: Constant(268435456),
+                     size_dist: Constant(0),
+                     data_dist: BytePattern(0, vec![])
+                 })
+            ] });
+
     store_test_scenario(
         vec![
             WriteData { seed: 0 },
@@ -679,4 +739,5 @@ fn store_test_scenario_regressions() {
             )],
         },
     )
+
 }
