@@ -136,7 +136,7 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
         }
         let mut file = OpenOptions::new()
             .read(true)
-            .write(true)
+            .append(true)
             .create(true)
             .open(out_file_path.clone())
             .context(StdIoOpenError)?;
