@@ -100,10 +100,7 @@ impl quickcheck::Arbitrary for SizeDistribution {
                 rate.shrink()
                     .map(|rate| Self::Poisson { rate })
                     .chain(once(Self::Constant(*rate)))
-                    .chain(once(Self::UniformRange(
-                        0,
-                        rate<<1,
-                    ))),
+                    .chain(once(Self::UniformRange(0, rate << 1))),
             ),
         }
     }
@@ -226,16 +223,13 @@ impl quickcheck::Arbitrary for DataDistribution {
 
 #[derive(Clone, Debug, Copy)]
 enum StorageType {
-    Rolling,
     Append,
+    Rolling,
 }
 
 impl quickcheck::Arbitrary for StorageType {
     fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        *g.choose(&[
-            Self::Rolling,
-            // Self::Append
-        ]).unwrap()
+        *g.choose(&[Self::Rolling, Self::Append]).unwrap()
     }
 }
 
@@ -337,15 +331,24 @@ impl quickcheck::Arbitrary for StoreDescription {
 #[derive(Clone, Debug)]
 enum StorageAction {
     Commit,
-    Revert { which_log: u16 },
+    Revert {
+        which_log: u16,
+    },
     Reconstruct,
     // Write data to each log based on their descriptions
-    WriteData { seed: u64, max_num: u16, max_buf_size: u16 },
+    WriteData {
+        seed: u64,
+        max_num: u16,
+        max_buf_size: u16,
+    },
     LoadLatest,
 
     // TODO: iterator API coverage
     // indexed back in time
-    ReadData { i1: u32, i2: u32 },
+    ReadData {
+        i1: u32,
+        i2: u32,
+    },
     // TODO: metadata corruption?
 }
 
@@ -385,13 +388,22 @@ impl quickcheck::Arbitrary for StorageAction {
                 Box::new(which_log.shrink().map(|which_log| Revert { which_log }))
                     as Box<dyn Iterator<Item = _> + 'static>
             }
-            WriteData { seed,max_num,max_buf_size } => {
+            WriteData {
+                seed,
+                max_num,
+                max_buf_size,
+            } => {
                 let seed = *seed;
                 let max_num = *max_num;
                 let max_buf_size = *max_buf_size;
-                Box::new((max_num,max_buf_size,seed).shrink().map(move |(max_num,max_buf_size,seed)| WriteData { seed,max_num,max_buf_size }))
-                as Box<dyn Iterator<Item = _> + 'static>
-            },
+                Box::new((max_num, max_buf_size, seed).shrink().map(
+                    move |(max_num, max_buf_size, seed)| WriteData {
+                        seed,
+                        max_num,
+                        max_buf_size,
+                    },
+                )) as Box<dyn Iterator<Item = _> + 'static>
+            }
             ReadData { i1, i2 } => {
                 Box::new((*i1, *i2).shrink().map(|(i1, i2)| ReadData { i1, i2 }))
                     as Box<dyn Iterator<Item = _> + 'static>
@@ -452,6 +464,7 @@ impl Log {
 }
 
 struct IdealLog {
+    orig_name: String,
     name: String,
     desc: LogDescription,
     log: Log,
@@ -469,20 +482,21 @@ struct StorageRunner {
 impl StorageRunner {
     fn new_with_path(desc: StoreDescription, directory: TempDir) -> Result<Self> {
         let test_path = directory.path();
-        let mut store_loader =
-            AtomicStoreLoader::create(test_path, "storage_runner_store").unwrap();
+        let mut store_loader = AtomicStoreLoader::load(test_path, "storage_runner_store").unwrap();
 
         let logs = desc
             .logs
             .into_iter()
             .enumerate()
             .map(|(i, (name, log_desc))| -> Result<_> {
+                let orig_name = name.clone();
                 let name = format!("{}_{}", i, name).escape_default().to_string();
                 let name = name.replace("/", "_");
                 let name = name[..core::cmp::min(10, name.len())].to_string();
+                // dbg!(&name);
                 let log = match log_desc.log_type {
                     StorageType::Append => Log::Append(
-                        AppendLog::create(
+                        AppendLog::load(
                             &mut store_loader,
                             <BincodeLoadStore<Vec<u8>>>::default(),
                             &name,
@@ -491,7 +505,7 @@ impl StorageRunner {
                         .unwrap(),
                     ),
                     StorageType::Rolling => Log::Rolling(
-                        RollingLog::create(
+                        RollingLog::load(
                             &mut store_loader,
                             <BincodeLoadStore<Vec<u8>>>::default(),
                             &name,
@@ -502,6 +516,7 @@ impl StorageRunner {
                 };
 
                 Ok(IdealLog {
+                    orig_name,
                     name,
                     desc: log_desc,
                     log,
@@ -557,7 +572,6 @@ impl StorageRunner {
             }
 
             Reconstruct => {
-
                 let mut log_stored_items = vec![];
 
                 let logs = self
@@ -569,7 +583,7 @@ impl StorageRunner {
                             lg.stored_items.pop();
                         }
                         log_stored_items.push(lg.stored_items);
-                        (lg.name, lg.desc)
+                        (lg.orig_name, lg.desc)
                     })
                     .collect();
 
@@ -581,7 +595,11 @@ impl StorageRunner {
                 }
             }
 
-            WriteData { seed, max_num, max_buf_size } => {
+            WriteData {
+                seed,
+                max_num,
+                max_buf_size,
+            } => {
                 let mut base_prng = ChaChaRng::seed_from_u64(seed);
 
                 let mut writes_remaining = max_num;
@@ -590,15 +608,14 @@ impl StorageRunner {
                     let mut log_prng = ChaChaRng::from_rng(&mut base_prng).unwrap();
                     // let num_resources = log.desc.data_rate.sample(&mut log_prng) & ((1u32 << 4)-1);
                     let num_resources = log.desc.data_rate.sample(&mut log_prng);
-                    let num_resources = core::cmp::min(writes_remaining,num_resources);
+                    let num_resources = core::cmp::min(writes_remaining, num_resources);
                     writes_remaining -= num_resources;
                     for _ in 0..num_resources {
-                        let buf_size =
-                            (log.desc.size_dist.sample(&mut log_prng)) as usize;
-                        let buf_size = core::cmp::min(1+max_buf_size as usize,buf_size);
-                        let buf_size = core::cmp::max(1,buf_size);
+                        let buf_size = (log.desc.size_dist.sample(&mut log_prng)) as usize;
+                        let buf_size = core::cmp::min(1 + max_buf_size as usize, buf_size);
+                        let buf_size = core::cmp::max(1, buf_size);
 
-                        println!("  writing {} bytes to {}",buf_size,log.name);
+                        println!("  writing {} bytes to {}", buf_size, log.name);
 
                         let mut buf = Vec::with_capacity(buf_size);
                         buf.resize(buf_size, 0);
@@ -624,6 +641,8 @@ impl StorageRunner {
                             );
                         }
                         Err(crate::PersistenceError::FailedToFindExpectedResource { .. }) => {
+                            // dbg!(key);
+                            // dbg!(&log.stored_items);
                             assert!(log.stored_items.len() <= log.num_pending_items);
                         }
                         Err(e) => {
@@ -702,46 +721,89 @@ fn store_test_scenario_regressions() {
     use StorageType::*;
 
     // catches .append(true)
-    store_test_scenario(vec![
-        WriteData { seed: 0, max_num: 1, max_buf_size: 0 },
-        Commit,
-        WriteData { seed: 0, max_num: 1, max_buf_size: 0 },
-        Commit,
-        ReadData { i1: 0, i2: 0 }
-    ],
-    StoreDescription {
-        logs: vec![
-            ("".to_string(),
-            LogDescription {
-                file_fill_size: 18,
-                log_type: Rolling,
-                data_rate: Constant(1),
-                size_dist: Constant(0),
-                data_dist: U32Pattern(0, vec![]) })
-        ]
-    }
+    store_test_scenario(
+        vec![
+            WriteData {
+                seed: 0,
+                max_num: 1,
+                max_buf_size: 0,
+            },
+            Commit,
+            WriteData {
+                seed: 0,
+                max_num: 1,
+                max_buf_size: 0,
+            },
+            Commit,
+            ReadData { i1: 0, i2: 0 },
+        ],
+        StoreDescription {
+            logs: vec![(
+                "".to_string(),
+                LogDescription {
+                    file_fill_size: 18,
+                    log_type: Rolling,
+                    data_rate: Constant(1),
+                    size_dist: Constant(0),
+                    data_dist: U32Pattern(0, vec![]),
+                },
+            )],
+        },
     );
 
     // catches ???
-    store_test_scenario(vec![
-        WriteData { seed: 0, max_num: 1, max_buf_size: 0 },
-        Commit,
-        Reconstruct,
-        LoadLatest,
-        ReadData { i1: 0, i2: 0 }
-    ],
-    StoreDescription {
-        logs: vec![
-            ("".to_string(),
-            LogDescription {
-                file_fill_size: 1,
-                log_type: Rolling,
-                data_rate: Constant(1),
-                size_dist: Constant(0),
-                data_dist: U16Pattern(0, vec![])
-            }
-            )
-        ]
-    });
+    store_test_scenario(
+        vec![
+            WriteData {
+                seed: 0,
+                max_num: 1,
+                max_buf_size: 0,
+            },
+            Commit,
+            LoadLatest,
+            Reconstruct,
+            LoadLatest,
+        ],
+        StoreDescription {
+            logs: vec![(
+                "".to_string(),
+                LogDescription {
+                    file_fill_size: 1,
+                    log_type: Append,
+                    data_rate: Constant(1),
+                    size_dist: Constant(0),
+                    data_dist: U16Pattern(0, vec![]),
+                },
+            )],
+        },
+    );
 
+    store_test_scenario(
+        vec![
+            WriteData {
+                seed: 0,
+                max_num: 2,
+                max_buf_size: 0,
+            },
+            Commit,
+            Reconstruct,
+            WriteData {
+                seed: 0,
+                max_num: 1,
+                max_buf_size: 0,
+            },
+        ],
+        StoreDescription {
+            logs: vec![(
+                "".to_string(),
+                LogDescription {
+                    file_fill_size: 14,
+                    log_type: Rolling,
+                    data_rate: Constant(2),
+                    size_dist: Constant(0),
+                    data_dist: BytePattern(1, vec![]),
+                },
+            )],
+        },
+    );
 }
