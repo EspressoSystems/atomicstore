@@ -493,7 +493,6 @@ impl StorageRunner {
                 let name = format!("{}_{}", i, name).escape_default().to_string();
                 let name = name.replace("/", "_");
                 let name = name[..core::cmp::min(10, name.len())].to_string();
-                // dbg!(&name);
                 let log = match log_desc.log_type {
                     StorageType::Append => Log::Append(
                         AppendLog::load(
@@ -641,8 +640,6 @@ impl StorageRunner {
                             );
                         }
                         Err(crate::PersistenceError::FailedToFindExpectedResource { .. }) => {
-                            // dbg!(key);
-                            // dbg!(&log.stored_items);
                             assert!(log.stored_items.len() <= log.num_pending_items);
                         }
                         Err(e) => {

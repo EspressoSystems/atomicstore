@@ -192,6 +192,7 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
                 .context(StdIoSeekError)?;
         }
         self.write_to_file = Some(file);
+        assert!(self.write_pos > 0);
         Ok(())
     }
 
@@ -235,7 +236,7 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
                     .write_all(&self.file_entries.to_le_bytes())
                     .context(StdIoWriteError)?;
             }
-            self.write_pos = 0;
+            self.write_pos = 4;
             self.file_entries = 0;
             self.write_file_counter += 1;
             self.write_to_file = None;
