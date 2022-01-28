@@ -541,7 +541,7 @@ impl StorageRunner {
 
     fn run_action(mut self, action: StorageAction) -> Self {
         use StorageAction::*;
-        println!("{:?}", &action);
+        // println!("{:?}", &action);
         match action {
             Commit => {
                 for log in self.logs.iter_mut() {
@@ -614,7 +614,7 @@ impl StorageRunner {
                         let buf_size = core::cmp::min(1 + max_buf_size as usize, buf_size);
                         let buf_size = core::cmp::max(1, buf_size);
 
-                        println!("  writing {} bytes to {}", buf_size, log.name);
+                        // println!("  writing {} bytes to {}", buf_size, log.name);
 
                         let mut buf = Vec::with_capacity(buf_size);
                         buf.resize(buf_size, 0);
@@ -698,7 +698,7 @@ impl StorageRunner {
 }
 
 fn store_test_scenario(actions: Vec<StorageAction>, desc: StoreDescription) {
-    println!("{:?}", desc);
+    // println!("{:?}", desc);
     let mut runner = StorageRunner::new(desc).unwrap();
     for action in actions {
         runner = runner.run_action(action);
