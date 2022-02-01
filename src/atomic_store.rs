@@ -22,7 +22,7 @@ use std::sync::{Arc, RwLock};
 
 /// This exists to provide a common type for serializing and deserializing of the atomic store
 /// table of contents, so the prior state can be pre-loaded without sacrificing single point of initialization.
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct AtomicStoreFileContents {
     pub file_counter: u32,
     pub resource_files: HashMap<String, StorageLocation>,
