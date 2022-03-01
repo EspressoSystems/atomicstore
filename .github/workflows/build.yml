@@ -53,3 +53,11 @@ jobs:
           cargo doc --no-deps --document-private-items -p atomic_store
           cp -R target/doc public
           echo '<meta http-equiv="refresh" content="0; url=atomic_store">' > public/index.html
+
+      - name: Deploy
+        uses: peaceiris/actions-gh-pages@v3
+        if: ${{ github.ref == 'refs/heads/main' }}
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./public
+          cname: atomicstore.docs.goespresso.com
