@@ -3,15 +3,13 @@ name: Build
 on:
   push:
     branches:
-      - 'main'
-  pull_request:
-  workflow_dispatch:
+      - '*'
 
 jobs:
   build:
     runs-on: self-hosted
     container:
-      image: registry.gitlab.com/asuran-rs/containers/rust-sccache-docker:1.56
+      image: registry.gitlab.com/asuran-rs/containers/rust-sccache-docker:1.54
     steps:
       - uses: actions/checkout@v2
         name: Checkout Repository
@@ -31,10 +29,7 @@ jobs:
         run: cargo fmt -- --check
 
       - name: Clippy
-        uses: actions-rs/clippy-check@v1
-        with:
-          token: ${{ github.token }}
-          args: -- -D warnings
+        run: cargo clippy -- -D warnings
 
       - name: Check
         run: cargo check
@@ -46,7 +41,7 @@ jobs:
         run: cargo build --release --examples
 
       - name: Test
-        run: cargo test --release --all-features -- -Zunstable-options --report-time
+        run: cargo test --release --all-features
 
       - name: Generate Documentation
         run: |

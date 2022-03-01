@@ -136,11 +136,10 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
         }
         let mut file = OpenOptions::new()
             .read(true)
-            .write(true)
+            .append(true)
             .create(true)
             .open(out_file_path.clone())
             .context(StdIoOpenError)?;
-        file.seek(SeekFrom::End(0)).context(StdIoSeekError)?;
         self.file_entries = 0;
         if file.stream_position().context(StdIoSeekError)? == 0 {
             file.write_all(&[0u8; 4]).context(StdIoWriteError)?;
@@ -161,7 +160,6 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
             while read_position < self.write_pos {
                 let mut buffer = [0u8; 4];
                 file.read_exact(&mut buffer).context(StdIoReadError)?;
-                read_position += 4;
                 let entry_size = u32::from_le_bytes(buffer);
                 read_position += entry_size as u64;
                 let _lines = file
@@ -171,10 +169,7 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
             }
             if read_position > self.write_pos {
                 return Err(PersistenceError::InvalidFileContents {
-                    note: format!(
-                        "file stream mismatch for last recorded entry: {} > {}",
-                        read_position, self.write_pos
-                    ),
+                    note: "file stream mismatch for last recorded entry".to_string(),
                     path: out_file_path.to_string_lossy().to_string(),
                 });
             }
@@ -192,7 +187,6 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
                 .context(StdIoSeekError)?;
         }
         self.write_to_file = Some(file);
-        assert!(self.write_pos > 0);
         Ok(())
     }
 
@@ -207,12 +201,12 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
         }
         let serialized = self.adaptor.store(resource)?;
         let resource_length = serialized.len() as u32;
-        assert_eq!(resource_length.to_le_bytes().len(), 4);
         self.write_to_file
             .as_ref()
             .unwrap()
             .write_all(&resource_length.to_le_bytes())
             .context(StdIoWriteError)?;
+        self.write_pos += 4;
         self.write_to_file
             .as_ref()
             .unwrap()
@@ -221,11 +215,11 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
 
         let location = StorageLocation {
             file_counter: self.write_file_counter,
-            store_start: self.write_pos + 4,
+            store_start: self.write_pos,
             store_length: resource_length,
         };
 
-        self.write_pos += (4 + resource_length) as u64;
+        self.write_pos += resource_length as u64;
         self.file_entries += 1;
         if self.write_pos >= self.file_fill_size {
             if let Some(mut write_to_file) = self.write_to_file.as_ref() {
@@ -236,7 +230,7 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
                     .write_all(&self.file_entries.to_le_bytes())
                     .context(StdIoWriteError)?;
             }
-            self.write_pos = 4;
+            self.write_pos = 0;
             self.file_entries = 0;
             self.write_file_counter += 1;
             self.write_to_file = None;

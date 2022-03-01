@@ -177,11 +177,10 @@ impl<ResourceAdaptor: LoadStore> AppendLog<ResourceAdaptor> {
         }
         let mut file = OpenOptions::new()
             .read(true)
-            .write(true)
+            .append(true)
             .create(true)
             .open(out_file_path)
             .context(StdIoOpenError)?;
-        file.seek(SeekFrom::End(0)).context(StdIoSeekError)?;
         if file.stream_position().context(StdIoSeekError)? != self.write_pos {
             file.set_len(self.write_pos).context(StdIoWriteError)?;
             let _lines = file

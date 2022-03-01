@@ -18,11 +18,3 @@ snafu = { version = "0.6.10", features = ["backtraces"] }
 
 [dev-dependencies]
 array-init = "2.0.0"
-quickcheck = "1.0"
-tempdir = "0.3.7"
-rand_chacha = { version = "0.3.1" }
-rand = "0.8.4"
-rand_distr = "0.4.3"
-rand_core = "0.6.2"
-quickcheck_macros = "1.0"
-
