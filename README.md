@@ -9,10 +9,10 @@ for the entire entity.
 
 # Usage
 
-Each logical compenent with a persistable state must initialize an instance of AtomicStore, and a store for each element of its state that can be updated independently.
-There are two fields used to define the domain of the logical component: a `storage_path: &Path`, and a `component_tag: &str`. Note that the first field contains an assumption of storage in a filesyste; this may change in the future.
+Each logical component with a persistable state must initialize an instance of AtomicStore, and a store for each element of its state that can be updated independently.
+There are two fields used to define the domain of the logical component: a `storage_path: &Path`, and a `component_tag: &str`. Note that the first field contains an assumption of storage in a file system; this may change in the future.
 
-At the time of logical component initialization, a temporary `AtomicStoreLoader` must be used to load the prior state indexes, or clear them if restoring the initial global state. This must then be used to initialize each associated stateful element. Once all element are initialized, the global `AtomicStore` instance can be initialized, and should be kept in scope until the logical component terminates.
+At the time of logical component initialization, a temporary `AtomicStoreLoader` must be used to load the prior state indexes, or clear them if restoring the initial global state. This must then be used to initialize each associated stateful element. Once all elements are initialized, the global `AtomicStore` instance can be initialized, and should be kept in scope until the logical component terminates.
 
 Each element that is persisted should specify its stateful representation in terms of one or more log types. The atomic_store crate currently provides three types of log: `AppendLog`, `FixedAppendLog`, and `RollingLog`, but it will work with custom logs as well.
 
