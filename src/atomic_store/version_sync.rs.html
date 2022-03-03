@@ -87,7 +87,7 @@
     <span class="ident">last_version_location</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">StorageLocation</span><span class="op">&gt;</span>,
     <span class="ident">next_version_location</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">StorageLocation</span><span class="op">&gt;</span>,
     <span class="ident">version_pending</span>: <span class="ident">Arc</span><span class="op">&lt;</span>(<span class="ident">Mutex</span><span class="op">&lt;</span><span class="ident">bool</span><span class="op">&gt;</span>, <span class="ident">Condvar</span>)<span class="op">&gt;</span>,
-    <span class="ident">resource_key</span>: <span class="ident">String</span>,
+    <span class="ident">_resource_key</span>: <span class="ident">String</span>,
 }
 
 <span class="kw">impl</span> <span class="ident">VersionSyncHandle</span> {
@@ -96,7 +96,7 @@
             <span class="ident">last_version_location</span>,
             <span class="ident">next_version_location</span>: <span class="ident">last_version_location</span>,
             <span class="ident">version_pending</span>: <span class="ident">Arc::new</span>((<span class="ident">Mutex::new</span>(<span class="bool-val">false</span>), <span class="ident">Condvar::new</span>())),
-            <span class="ident">resource_key</span>: <span class="ident">key</span>.<span class="ident">to_string</span>(),
+            <span class="ident">_resource_key</span>: <span class="ident">key</span>.<span class="ident">to_string</span>(),
         }
     }
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">last_location</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="kw-2">&amp;</span><span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">StorageLocation</span><span class="op">&gt;</span> {
