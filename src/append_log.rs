@@ -285,7 +285,7 @@ impl<ResourceAdaptor: LoadStore> Iter<'_, ResourceAdaptor> {
                 Some(File::open(read_file_path.as_path()).context(StdIoOpenError)?);
         }
         load_from_file::<ResourceAdaptor>(
-            &mut self.read_from_file.as_mut().unwrap(),
+            self.read_from_file.as_mut().unwrap(),
             self.adaptor,
             location,
         )
