@@ -2,9 +2,10 @@
 name = "atomic_store"
 description = "Persistence with atomic synchronization for a single version of record"
 version = "0.1.0"
-authors = ["Nathan F Yospe <nathan@translucence.net>"]
+authors = ["Espresso Systems <hello@espressosys.com>"]
 edition = "2018"
 readme = "README.md"
+license = "GPL-3.0-or-later"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
