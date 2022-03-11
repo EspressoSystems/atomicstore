@@ -293,7 +293,7 @@ fn test_atomic_store_log_timeout() {
     use crate::load_store::BincodeLoadStore;
 
     let prefix = "test_atomic_store_log_timeout";
-    let dir = tempdir::TempDir::new(prefix).expect("Could not create tempdir");
+    let dir = tempfile::tempdir().expect("Could not create tempdir");
     let mut loader =
         AtomicStoreLoader::load(dir.path(), prefix).expect("Could not open an atomic store");
     let mut log = crate::AppendLog::load(

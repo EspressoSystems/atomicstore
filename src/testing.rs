@@ -21,7 +21,7 @@ use rand::Rng;
 use rand_chacha::ChaChaRng;
 use rand_core::SeedableRng;
 use std::sync::Arc;
-use tempdir::TempDir;
+use tempfile::TempDir;
 
 fn poisson_uni<R: Rng>(prng: &mut R, lambda: u16) -> u16 {
     let lambda = lambda as f64;
@@ -543,7 +543,7 @@ impl StorageRunner {
     }
 
     fn new(desc: StoreDescription) -> Result<Self> {
-        Self::new_with_path(desc, TempDir::new("atomicstore_test").unwrap())
+        Self::new_with_path(desc, TempDir::new().unwrap())
     }
 
     fn run_action(mut self, action: StorageAction) -> Self {
