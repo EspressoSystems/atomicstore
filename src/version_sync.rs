@@ -11,7 +11,10 @@
 use crate::storage_location::StorageLocation;
 use crate::Result;
 
-use std::sync::{Arc, Condvar, Mutex};
+use std::{
+    sync::{Arc, Condvar, Mutex},
+    time::{Duration, Instant},
+};
 
 #[derive(Debug)]
 pub struct VersionSyncHandle {
@@ -71,12 +74,26 @@ impl VersionSyncHandle {
         Ok(())
     }
 
-    pub fn wait_for_version(&self) -> Result<()> {
+    pub fn wait_for_version_with_timeout(&self, timeout: Duration) -> Result<()> {
         let version_pending = Arc::clone(&self.version_pending);
         let (mtx, cv) = &*version_pending;
         let mut version_ready = mtx.lock()?;
+        // Get the current time, to make sure that `mtx` won't constantly update with `false` and this function won't
+        // ever time out
+        let start_time = Instant::now();
         while !*version_ready {
-            version_ready = cv.wait(version_ready)?;
+            // Make sure the `timeout` has not elapsed since the beginning of this function
+            let elapsed = start_time.elapsed();
+            if elapsed >= timeout {
+                return Err(crate::error::PersistenceError::TimedOut);
+            }
+
+            let remaining_time = timeout - elapsed;
+            let (guard, result) = cv.wait_timeout(version_ready, remaining_time)?;
+            if result.timed_out() {
+                return Err(crate::error::PersistenceError::TimedOut);
+            }
+            version_ready = guard;
         }
         Ok(())
     }

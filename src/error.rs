@@ -99,6 +99,8 @@ pub enum PersistenceError {
     GlobRuntime { source: glob::GlobError },
     /// Placeholder for PoisonError specializations
     SyncPoisonError { description: String },
+    /// `AtomicStore::commit_version` took to long to wait for Log versions and timed out
+    TimedOut,
 }
 
 impl<T> From<std::sync::PoisonError<T>> for PersistenceError {

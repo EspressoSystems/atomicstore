@@ -26,6 +26,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 /// This exists to provide a common type for serializing and deserializing of the atomic store
 /// table of contents, so the prior state can be pre-loaded without sacrificing single point of initialization.
@@ -211,6 +212,9 @@ pub struct AtomicStore {
     file_counter: u32,
     last_counter: Option<u32>,
     resources: HashMap<String, Arc<RwLock<VersionSyncHandle>>>,
+    // How long `commit_version` will wait for resource versions before returning an error.
+    // defaults to 100 milliseconds
+    commit_timeout: Duration,
 }
 
 impl AtomicStore {
@@ -229,15 +233,22 @@ impl AtomicStore {
                 Some(load_info.file_counter)
             },
             resources: load_info.resources,
+            commit_timeout: Duration::from_millis(100),
         })
     }
 
+    /// Set the commit timeout. By default, `AtomicStore` will wait 100 milliseconds for all logs to be committed.
+    pub fn set_commit_timeout(&mut self, timeout: Duration) {
+        self.commit_timeout = timeout;
+    }
+
+    /// Commit the version. Note that *all* `Log` must call `.commit_version()` or `.skip_version()` before this function is called.
     pub fn commit_version(&mut self) -> Result<()> {
         let mut collected_locations = HashMap::<String, StorageLocation>::new();
         for (resource_key, resource_store) in self.resources.iter() {
             {
                 let store_access = resource_store.read()?;
-                store_access.wait_for_version()?;
+                store_access.wait_for_version_with_timeout(self.commit_timeout)?;
                 if let Some(location_found) = store_access.last_location() {
                     collected_locations.insert(resource_key.to_string(), *location_found);
                 }
@@ -275,4 +286,33 @@ impl AtomicStore {
         self.file_counter += 1; // advance for the next version
         Ok(())
     }
+}
+
+#[test]
+fn test_atomic_store_log_timeout() {
+    use crate::load_store::BincodeLoadStore;
+
+    let prefix = "test_atomic_store_log_timeout";
+    let dir = tempdir::TempDir::new(prefix).expect("Could not create tempdir");
+    let mut loader =
+        AtomicStoreLoader::load(dir.path(), prefix).expect("Could not open an atomic store");
+    let mut log = crate::AppendLog::load(
+        &mut loader,
+        BincodeLoadStore::<u64>::default(),
+        prefix,
+        1024,
+    )
+    .expect("Could not create appendlog");
+    let mut store = AtomicStore::open(loader).expect("Could not open store");
+
+    // oops we forgot to commit log
+    if let Err(crate::error::PersistenceError::TimedOut) = store.commit_version() {
+        // ok
+    } else {
+        panic!("Atomic store should've timed out");
+    }
+
+    // Committing again should work
+    log.commit_version().expect("Could not commit log");
+    store.commit_version().expect("Could not commit store");
 }
