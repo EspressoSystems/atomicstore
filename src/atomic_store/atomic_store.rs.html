@@ -276,6 +276,54 @@
 <span id="276">276</span>
 <span id="277">277</span>
 <span id="278">278</span>
+<span id="279">279</span>
+<span id="280">280</span>
+<span id="281">281</span>
+<span id="282">282</span>
+<span id="283">283</span>
+<span id="284">284</span>
+<span id="285">285</span>
+<span id="286">286</span>
+<span id="287">287</span>
+<span id="288">288</span>
+<span id="289">289</span>
+<span id="290">290</span>
+<span id="291">291</span>
+<span id="292">292</span>
+<span id="293">293</span>
+<span id="294">294</span>
+<span id="295">295</span>
+<span id="296">296</span>
+<span id="297">297</span>
+<span id="298">298</span>
+<span id="299">299</span>
+<span id="300">300</span>
+<span id="301">301</span>
+<span id="302">302</span>
+<span id="303">303</span>
+<span id="304">304</span>
+<span id="305">305</span>
+<span id="306">306</span>
+<span id="307">307</span>
+<span id="308">308</span>
+<span id="309">309</span>
+<span id="310">310</span>
+<span id="311">311</span>
+<span id="312">312</span>
+<span id="313">313</span>
+<span id="314">314</span>
+<span id="315">315</span>
+<span id="316">316</span>
+<span id="317">317</span>
+<span id="318">318</span>
+<span id="319">319</span>
+<span id="320">320</span>
+<span id="321">321</span>
+<span id="322">322</span>
+<span id="323">323</span>
+<span id="324">324</span>
+<span id="325">325</span>
+<span id="326">326</span>
 </pre><pre class="rust"><code><span class="comment">// Copyright (c) 2022 Espresso Systems (espressosys.com)</span>
 <span class="comment">// This file is part of the AtomicStore library.</span>
 
@@ -304,6 +352,7 @@
 <span class="kw">use</span> <span class="ident">std::path</span>::{<span class="ident">Path</span>, <span class="ident">PathBuf</span>};
 <span class="kw">use</span> <span class="ident">std::str::FromStr</span>;
 <span class="kw">use</span> <span class="ident">std::sync</span>::{<span class="ident">Arc</span>, <span class="ident">RwLock</span>};
+<span class="kw">use</span> <span class="ident">std::time::Duration</span>;
 
 <span class="doccomment">/// This exists to provide a common type for serializing and deserializing of the atomic store</span>
 <span class="doccomment">/// table of contents, so the prior state can be pre-loaded without sacrificing single point of initialization.</span>
@@ -489,10 +538,19 @@
     <span class="ident">file_counter</span>: <span class="ident">u32</span>,
     <span class="ident">last_counter</span>: <span class="prelude-ty">Option</span><span class="op">&lt;</span><span class="ident">u32</span><span class="op">&gt;</span>,
     <span class="ident">resources</span>: <span class="ident">HashMap</span><span class="op">&lt;</span><span class="ident">String</span>, <span class="ident">Arc</span><span class="op">&lt;</span><span class="ident">RwLock</span><span class="op">&lt;</span><span class="ident">VersionSyncHandle</span><span class="op">&gt;</span><span class="op">&gt;</span><span class="op">&gt;</span>,
+    <span class="comment">// How long `commit_version` will wait for resource versions before returning an error.</span>
+    <span class="comment">// defaults to 100 milliseconds</span>
+    <span class="ident">commit_timeout</span>: <span class="ident">Duration</span>,
 }
 
 <span class="kw">impl</span> <span class="ident">AtomicStore</span> {
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">open</span>(<span class="ident">load_info</span>: <span class="ident">AtomicStoreLoader</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">AtomicStore</span><span class="op">&gt;</span> {
+        <span class="kw">let</span> <span class="ident">commit_timeout</span> <span class="op">=</span> <span class="kw">if</span> <span class="ident">std::env::var</span>(<span class="string">&quot;ATOMIC_STORE_NO_TIMEOUT&quot;</span>).<span class="ident">is_ok</span>() {
+            <span class="ident">Duration::MAX</span>
+        } <span class="kw">else</span> {
+            <span class="ident">Duration::from_millis</span>(<span class="number">100</span>)
+        };
+
         <span class="prelude-val">Ok</span>(<span class="ident">AtomicStore</span> {
             <span class="ident">file_path</span>: <span class="ident">load_info</span>.<span class="ident">file_path</span>,
             <span class="ident">file_pattern</span>: <span class="ident">load_info</span>.<span class="ident">file_pattern</span>,
@@ -507,15 +565,24 @@
                 <span class="prelude-val">Some</span>(<span class="ident">load_info</span>.<span class="ident">file_counter</span>)
             },
             <span class="ident">resources</span>: <span class="ident">load_info</span>.<span class="ident">resources</span>,
+            <span class="ident">commit_timeout</span>,
         })
     }
 
+    <span class="doccomment">/// Set the commit timeout. By default, `AtomicStore` will wait 100 milliseconds for all logs to be committed.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">set_commit_timeout</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>, <span class="ident">timeout</span>: <span class="ident">Duration</span>) {
+        <span class="self">self</span>.<span class="ident">commit_timeout</span> <span class="op">=</span> <span class="ident">timeout</span>;
+    }
+
+    <span class="doccomment">/// Commit the version. Note that all logs and stores must call `.commit_version()` or `.skip_version()` before this function is called.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// This will timeout after 100 milliseconds (configurable with `set_commit_timeout`). If you want to disable this timeout, set the `ATOMIC_STORE_NO_TIMEOUT` environment variable before calling `AtomicStore::open`.</span>
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">commit_version</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
         <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">collected_locations</span> <span class="op">=</span> <span class="ident">HashMap</span>::<span class="op">&lt;</span><span class="ident">String</span>, <span class="ident">StorageLocation</span><span class="op">&gt;</span><span class="ident">::new</span>();
         <span class="kw">for</span> (<span class="ident">resource_key</span>, <span class="ident">resource_store</span>) <span class="kw">in</span> <span class="self">self</span>.<span class="ident">resources</span>.<span class="ident">iter</span>() {
             {
                 <span class="kw">let</span> <span class="ident">store_access</span> <span class="op">=</span> <span class="ident">resource_store</span>.<span class="ident">read</span>()<span class="question-mark">?</span>;
-                <span class="ident">store_access</span>.<span class="ident">wait_for_version</span>()<span class="question-mark">?</span>;
+                <span class="ident">store_access</span>.<span class="ident">wait_for_version_with_timeout</span>(<span class="self">self</span>.<span class="ident">commit_timeout</span>)<span class="question-mark">?</span>;
                 <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">location_found</span>) <span class="op">=</span> <span class="ident">store_access</span>.<span class="ident">last_location</span>() {
                     <span class="ident">collected_locations</span>.<span class="ident">insert</span>(<span class="ident">resource_key</span>.<span class="ident">to_string</span>(), <span class="kw-2">*</span><span class="ident">location_found</span>);
                 }
@@ -553,6 +620,35 @@
         <span class="self">self</span>.<span class="ident">file_counter</span> <span class="op">+</span><span class="op">=</span> <span class="number">1</span>; <span class="comment">// advance for the next version</span>
         <span class="prelude-val">Ok</span>(())
     }
+}
+
+<span class="attribute">#[<span class="ident">test</span>]</span>
+<span class="kw">fn</span> <span class="ident">test_atomic_store_log_timeout</span>() {
+    <span class="kw">use</span> <span class="ident"><span class="kw">crate</span>::load_store::BincodeLoadStore</span>;
+
+    <span class="kw">let</span> <span class="ident">prefix</span> <span class="op">=</span> <span class="string">&quot;test_atomic_store_log_timeout&quot;</span>;
+    <span class="kw">let</span> <span class="ident">dir</span> <span class="op">=</span> <span class="ident">tempfile::tempdir</span>().<span class="ident">expect</span>(<span class="string">&quot;Could not create tempdir&quot;</span>);
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">loader</span> <span class="op">=</span>
+        <span class="ident">AtomicStoreLoader::load</span>(<span class="ident">dir</span>.<span class="ident">path</span>(), <span class="ident">prefix</span>).<span class="ident">expect</span>(<span class="string">&quot;Could not open an atomic store&quot;</span>);
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">log</span> <span class="op">=</span> <span class="ident"><span class="kw">crate</span>::AppendLog::load</span>(
+        <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">loader</span>,
+        <span class="ident">BincodeLoadStore</span>::<span class="op">&lt;</span><span class="ident">u64</span><span class="op">&gt;</span><span class="ident">::default</span>(),
+        <span class="ident">prefix</span>,
+        <span class="number">1024</span>,
+    )
+    .<span class="ident">expect</span>(<span class="string">&quot;Could not create appendlog&quot;</span>);
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">store</span> <span class="op">=</span> <span class="ident">AtomicStore::open</span>(<span class="ident">loader</span>).<span class="ident">expect</span>(<span class="string">&quot;Could not open store&quot;</span>);
+
+    <span class="comment">// oops we forgot to commit log</span>
+    <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Err</span>(<span class="ident"><span class="kw">crate</span>::error::PersistenceError::TimedOut</span>) <span class="op">=</span> <span class="ident">store</span>.<span class="ident">commit_version</span>() {
+        <span class="comment">// ok</span>
+    } <span class="kw">else</span> {
+        <span class="macro">panic!</span>(<span class="string">&quot;Atomic store should&#39;ve timed out&quot;</span>);
+    }
+
+    <span class="comment">// Committing again should work</span>
+    <span class="ident">log</span>.<span class="ident">commit_version</span>().<span class="ident">expect</span>(<span class="string">&quot;Could not commit log&quot;</span>);
+    <span class="ident">store</span>.<span class="ident">commit_version</span>().<span class="ident">expect</span>(<span class="string">&quot;Could not commit store&quot;</span>);
 }
 </code></pre></div>
 </section><section id="search" class="content hidden"></section><div id="rustdoc-vars" data-root-path="../../" data-current-crate="atomic_store" data-search-index-js="../../search-index.js" data-search-js="../../search.js"></div>
