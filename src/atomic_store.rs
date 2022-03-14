@@ -219,6 +219,12 @@ pub struct AtomicStore {
 
 impl AtomicStore {
     pub fn open(load_info: AtomicStoreLoader) -> Result<AtomicStore> {
+        let commit_timeout = if std::env::var("ATOMIC_STORE_NO_TIMEOUT").is_ok() {
+            Duration::MAX
+        } else {
+            Duration::from_millis(100)
+        };
+
         Ok(AtomicStore {
             file_path: load_info.file_path,
             file_pattern: load_info.file_pattern,
@@ -233,7 +239,7 @@ impl AtomicStore {
                 Some(load_info.file_counter)
             },
             resources: load_info.resources,
-            commit_timeout: Duration::from_millis(100),
+            commit_timeout,
         })
     }
 
@@ -242,7 +248,9 @@ impl AtomicStore {
         self.commit_timeout = timeout;
     }
 
-    /// Commit the version. Note that *all* `Log` must call `.commit_version()` or `.skip_version()` before this function is called.
+    /// Commit the version. Note that all logs and stores must call `.commit_version()` or `.skip_version()` before this function is called.
+    /// 
+    /// This will timeout after 100 milliseconds (configurable with `set_commit_timeout`). If you want to disable this timeout, set the `ATOMIC_STORE_NO_TIMEOUT` environment variable before calling `AtomicStore::open`.
     pub fn commit_version(&mut self) -> Result<()> {
         let mut collected_locations = HashMap::<String, StorageLocation>::new();
         for (resource_key, resource_store) in self.resources.iter() {
