@@ -249,7 +249,7 @@ impl AtomicStore {
     }
 
     /// Commit the version. Note that all logs and stores must call `.commit_version()` or `.skip_version()` before this function is called.
-    /// 
+    ///
     /// This will timeout after 100 milliseconds (configurable with `set_commit_timeout`). If you want to disable this timeout, set the `ATOMIC_STORE_NO_TIMEOUT` environment variable before calling `AtomicStore::open`.
     pub fn commit_version(&mut self) -> Result<()> {
         let mut collected_locations = HashMap::<String, StorageLocation>::new();

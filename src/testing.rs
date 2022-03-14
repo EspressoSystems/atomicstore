@@ -543,7 +543,13 @@ impl StorageRunner {
     }
 
     fn new(desc: StoreDescription) -> Result<Self> {
-        Self::new_with_path(desc, tempfile::Builder::new().prefix("atomicstore_test").tempdir().unwrap())
+        Self::new_with_path(
+            desc,
+            tempfile::Builder::new()
+                .prefix("atomicstore_test")
+                .tempdir()
+                .unwrap(),
+        )
     }
 
     fn run_action(mut self, action: StorageAction) -> Self {
