@@ -7,8 +7,8 @@
 
 use crate::atomic_store::AtomicStoreLoader;
 use crate::error::{
-    BincodeDeError, BincodeSerError, PersistenceError, StdIoDirOpsError, StdIoOpenError,
-    StdIoReadError, StdIoSeekError, StdIoWriteError,
+    BincodeDeSnafu, BincodeSerSnafu, PersistenceError, StdIoDirOpsSnafu, StdIoOpenSnafu,
+    StdIoReadSnafu, StdIoSeekSnafu, StdIoWriteSnafu,
 };
 use crate::load_store::LoadStore;
 use crate::storage_location::StorageLocation;
@@ -43,7 +43,7 @@ fn load_existing_index(index_file_path: &Path) -> Result<IndexContents> {
             path: index_file_path.to_string_lossy().to_string(),
         });
     }
-    let metadata = fs::metadata(index_file_path).context(StdIoOpenError)?;
+    let metadata = fs::metadata(index_file_path).context(StdIoOpenSnafu)?;
     if metadata.len() < 16 {
         // file doesn't contain a minimal IndexContents
         return Err(PersistenceError::InvalidFileContents {
@@ -51,12 +51,12 @@ fn load_existing_index(index_file_path: &Path) -> Result<IndexContents> {
             path: index_file_path.to_string_lossy().to_string(),
         });
     }
-    let mut index_file = File::open(index_file_path).context(StdIoOpenError)?;
+    let mut index_file = File::open(index_file_path).context(StdIoOpenSnafu)?;
     let mut buffer = Vec::new();
     index_file
         .read_to_end(&mut buffer)
-        .context(StdIoReadError)?;
-    let contents: IndexContents = bincode::deserialize(&buffer[..]).context(BincodeDeError)?;
+        .context(StdIoReadSnafu)?;
+    let contents: IndexContents = bincode::deserialize(&buffer[..]).context(BincodeDeSnafu)?;
     if contents.byte_order == BYTE_DISORDER {
         return Err(PersistenceError::FeatureNotYetImplemented {
             description: "byte order reordering".to_string(),
@@ -272,9 +272,9 @@ impl<ResourceAdaptor: LoadStore + Default> FixedAppendLog<ResourceAdaptor> {
                         Utc::now().timestamp()
                     ));
                     if file_index > 0 {
-                        fs::copy(&out_file_path, &backup_path).context(StdIoDirOpsError)?;
+                        fs::copy(&out_file_path, &backup_path).context(StdIoDirOpsSnafu)?;
                     } else {
-                        fs::rename(&out_file_path, &backup_path).context(StdIoDirOpsError)?;
+                        fs::rename(&out_file_path, &backup_path).context(StdIoDirOpsSnafu)?;
                     }
                 }
             }
@@ -284,13 +284,13 @@ impl<ResourceAdaptor: LoadStore + Default> FixedAppendLog<ResourceAdaptor> {
             .write(true)
             .create(true)
             .open(out_file_path)
-            .context(StdIoOpenError)?;
-        file.seek(SeekFrom::End(0)).context(StdIoSeekError)?;
-        if file.stream_position().context(StdIoSeekError)? != write_pos {
-            file.set_len(write_pos).context(StdIoWriteError)?;
+            .context(StdIoOpenSnafu)?;
+        file.seek(SeekFrom::End(0)).context(StdIoSeekSnafu)?;
+        if file.stream_position().context(StdIoSeekSnafu)? != write_pos {
+            file.set_len(write_pos).context(StdIoWriteSnafu)?;
             let _lines = file
                 .seek(SeekFrom::Start(write_pos))
-                .context(StdIoSeekError)?;
+                .context(StdIoSeekSnafu)?;
         }
         self.write_to_file = Some(file);
         Ok(())
@@ -311,7 +311,7 @@ impl<ResourceAdaptor: LoadStore + Default> FixedAppendLog<ResourceAdaptor> {
             .as_ref()
             .unwrap()
             .write_all(&serialized)
-            .context(StdIoWriteError)?;
+            .context(StdIoWriteSnafu)?;
 
         let location = self.index_to_location(self.write_index);
 
@@ -338,19 +338,19 @@ impl<ResourceAdaptor: LoadStore + Default> FixedAppendLog<ResourceAdaptor> {
             commit_index: self.commit_index as u32,
         };
 
-        let serialized = bincode::serialize(&contents).context(BincodeSerError)?;
+        let serialized = bincode::serialize(&contents).context(BincodeSerSnafu)?;
 
-        let mut write_index_file = File::create(&working_file_path).context(StdIoOpenError)?;
+        let mut write_index_file = File::create(&working_file_path).context(StdIoOpenSnafu)?;
         write_index_file
             .write_all(&serialized)
-            .context(StdIoWriteError)?;
+            .context(StdIoWriteSnafu)?;
         if index_file_path.exists() {
             if backup_file_path.exists() {
-                fs::remove_file(&backup_file_path).context(StdIoDirOpsError)?;
+                fs::remove_file(&backup_file_path).context(StdIoDirOpsSnafu)?;
             }
-            fs::rename(&index_file_path, &backup_file_path).context(StdIoDirOpsError)?;
+            fs::rename(&index_file_path, &backup_file_path).context(StdIoDirOpsSnafu)?;
         }
-        fs::rename(&working_file_path, &index_file_path).context(StdIoDirOpsError)?;
+        fs::rename(&working_file_path, &index_file_path).context(StdIoDirOpsSnafu)?;
 
         self.persisted_sync.write()?.update_version()
     }
@@ -390,13 +390,13 @@ impl<ResourceAdaptor: LoadStore + Default> FixedAppendLog<ResourceAdaptor> {
         let read_file_path =
             format_range_file_path(&self.file_path, &self.file_pattern, range_begin, range_end);
 
-        let mut read_file = File::open(read_file_path).context(StdIoOpenError)?;
+        let mut read_file = File::open(read_file_path).context(StdIoOpenSnafu)?;
         read_file
             .seek(SeekFrom::Start(file_offset))
-            .context(StdIoSeekError)?;
+            .context(StdIoSeekSnafu)?;
         let mut reader = read_file.take(self.resource_size);
         let mut buffer = Vec::new();
-        reader.read_to_end(&mut buffer).context(StdIoReadError)?;
+        reader.read_to_end(&mut buffer).context(StdIoReadSnafu)?;
         self.adaptor.load(&buffer[..])
     }
 
@@ -422,13 +422,13 @@ impl<ResourceAdaptor: LoadStore> Iter<'_, ResourceAdaptor> {
         if self.read_from_file.is_none() {
             let file_name =
                 format_range_file_path(&self.file_path, &self.file_pattern, range_begin, range_end);
-            self.read_from_file = Some(File::open(file_name).context(StdIoOpenError)?);
+            self.read_from_file = Some(File::open(file_name).context(StdIoOpenSnafu)?);
             if file_offset > 0 {
                 self.read_from_file
                     .as_ref()
                     .unwrap()
                     .seek(SeekFrom::Start(file_offset * self.resource_size))
-                    .context(StdIoSeekError)?;
+                    .context(StdIoSeekSnafu)?;
             }
         }
         let mut reader = self
@@ -437,7 +437,7 @@ impl<ResourceAdaptor: LoadStore> Iter<'_, ResourceAdaptor> {
             .unwrap()
             .take(self.resource_size);
         let mut buffer = Vec::new();
-        reader.read_to_end(&mut buffer).context(StdIoReadError)?;
+        reader.read_to_end(&mut buffer).context(StdIoReadSnafu)?;
 
         self.adaptor.load(&buffer[..])
     }
@@ -496,7 +496,7 @@ mod tests {
     #[test]
     fn empty_iterator() -> Result<()> {
         let mut test_path =
-            env::current_dir().map_err(|e| PersistenceError::StdIoDirOpsError { source: e })?;
+            env::current_dir().map_err(|e| PersistenceError::StdIoDirOps { source: e })?;
         test_path.push("testing_tmp");
         let mut store_loader =
             AtomicStoreLoader::create(test_path.as_path(), "fixed_append_log_test_empty_iterator")?;

@@ -8,40 +8,39 @@
 use ark_serialize;
 use bincode;
 use glob;
-use snafu::Snafu;
+use snafu::prelude::*;
 
 /// Error type for AtomicStore
 #[derive(Debug, Snafu)]
-#[snafu(visibility = "pub(crate)")]
-#[non_exhaustive]
+#[snafu(visibility(pub(crate)))]
 pub enum PersistenceError {
     /// Failed to resolve path
-    #[snafu(display("Failed to resolve a path '{:?}'", path))]
+    #[snafu(display("Failed to resolve a path '{path}'"))]
     FailedToResolvePath {
         /// The provided path
         path: String,
     },
     /// Failed to find resource
-    #[snafu(display("Failed to find an expected resource '{:?}'", key))]
+    #[snafu(display("Failed to find an expected resource '{key}'"))]
     FailedToFindExpectedResource {
         /// The resource key
         key: String,
     },
     /// Path to file is invalid
-    #[snafu(display("Path '{:?}' cannot be used for a file", path))]
+    #[snafu(display("Path '{path}' cannot be used for a file"))]
     InvalidPathToFile {
         /// The provided path
         path: String,
     },
     /// Path to file is invalid
-    #[snafu(display("File {:?} does not contain valid data", path))]
+    #[snafu(display("File '{path}' does not contain valid data: note: '{note}'"))]
     InvalidFileContents {
         note: String,
         /// The provided path
         path: String,
     },
     /// Failed to write to file
-    #[snafu(display("Failed to write resource to file {:?} at {}", filename, position))]
+    #[snafu(display("Failed to write resource to file '{filename}' at {position}"))]
     FailedToWriteToFile {
         /// The name of the actual file
         filename: String,
@@ -49,48 +48,48 @@ pub enum PersistenceError {
         position: u64,
     },
     /// Duplicate resource name
-    #[snafu(display("Resource key collision for {}", key))]
+    #[snafu(display("Resource key collision for '{key}'"))]
     DuplicateResourceKey {
         /// Resource key/file pattern
         key: String,
     },
     /// Stored state mismatch with load specification
-    #[snafu(display("Stored state for {} is inconsistent with startup specification", key))]
+    #[snafu(display("Stored state for '{key}' is inconsistent with startup specification"))]
     ResourceFormatInconsistent {
         /// Resource key/file pattern
         key: String,
     },
     /// Unimplemented feature
-    #[snafu(display("Feature not yet implemented: {}", description))]
+    #[snafu(display("Feature not yet implemented: {description}"))]
     FeatureNotYetImplemented { description: String },
     /// std::io directory operations error
-    StdIoDirOpsError { source: std::io::Error },
+    StdIoDirOps { source: std::io::Error },
     /// std::io open error
-    StdIoOpenError { source: std::io::Error },
+    StdIoOpen { source: std::io::Error },
     /// std::io seek error
-    StdIoSeekError { source: std::io::Error },
+    StdIoSeek { source: std::io::Error },
     /// std::io write error
-    StdIoWriteError { source: std::io::Error },
+    StdIoWrite { source: std::io::Error },
     /// std::io read error
-    StdIoReadError { source: std::io::Error },
+    StdIoRead { source: std::io::Error },
     /// Bincode serialization error
-    BincodeSerError { source: bincode::Error },
+    BincodeSer { source: bincode::Error },
     /// Bincode deserialization error
-    BincodeDeError { source: bincode::Error },
+    BincodeDe { source: bincode::Error },
     /// ArkWorks serialization error
     #[snafu(display("Arkworks Serialization Error on write: {}", err))]
-    ArkSerError {
+    ArkSer {
         err: ark_serialize::SerializationError,
     },
     /// ArkWorks deserialization error
     #[snafu(display("Arkworks Serialization Error on read: {}", err))]
-    ArkDeError {
+    ArkDe {
         err: ark_serialize::SerializationError,
     },
-    OtherStoreError {
+    OtherStore {
         inner: Box<dyn std::error::Error + Send + Sync>,
     },
-    OtherLoadError {
+    OtherLoad {
         inner: Box<dyn std::error::Error + Send + Sync>,
     },
     /// Glob syntax error
@@ -98,14 +97,14 @@ pub enum PersistenceError {
     /// Glob iteration error
     GlobRuntime { source: glob::GlobError },
     /// Placeholder for PoisonError specializations
-    SyncPoisonError { description: String },
+    SyncPoison { description: String },
     /// `AtomicStore::commit_version` took to long to wait for Log versions and timed out
     TimedOut,
 }
 
 impl<T> From<std::sync::PoisonError<T>> for PersistenceError {
     fn from(error: std::sync::PoisonError<T>) -> Self {
-        PersistenceError::SyncPoisonError {
+        PersistenceError::SyncPoison {
             description: error.to_string(),
         }
     }

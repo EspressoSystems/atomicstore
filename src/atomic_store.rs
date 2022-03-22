@@ -6,8 +6,8 @@
 // You should have received a copy of the GNU General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use crate::error::{
-    BincodeDeError, BincodeSerError, GlobRuntime, GlobSyntax, PersistenceError, StdIoDirOpsError,
-    StdIoOpenError, StdIoReadError, StdIoWriteError,
+    BincodeDeSnafu, BincodeSerSnafu, GlobRuntimeSnafu, GlobSyntaxSnafu, PersistenceError,
+    StdIoDirOpsSnafu, StdIoOpenSnafu, StdIoReadSnafu, StdIoWriteSnafu,
 };
 use crate::storage_location::StorageLocation;
 use crate::version_sync::VersionSyncHandle;
@@ -37,10 +37,10 @@ struct AtomicStoreFileContents {
 }
 
 fn load_state(path: &Path) -> Result<AtomicStoreFileContents> {
-    let mut file = File::open(path).context(StdIoOpenError)?;
+    let mut file = File::open(path).context(StdIoOpenSnafu)?;
     let mut buf = Vec::new();
-    file.read_to_end(&mut buf).context(StdIoReadError)?;
-    bincode::deserialize::<AtomicStoreFileContents>(&buf[..]).context(BincodeDeError)
+    file.read_to_end(&mut buf).context(StdIoReadSnafu)?;
+    bincode::deserialize::<AtomicStoreFileContents>(&buf[..]).context(BincodeDeSnafu)
 }
 
 fn extract_count(file_pattern: &str, path_result: &glob::GlobResult) -> Option<u32> {
@@ -100,7 +100,7 @@ impl AtomicStoreLoader {
                 let path_pattern = path_pattern_buf.to_string_lossy().to_string();
                 // TODO: could be simplified by doing a length sort and then a lexical sort of the longest length.
                 glob(&path_pattern)
-                    .context(GlobSyntax)?
+                    .context(GlobSyntaxSnafu)?
                     .max_by_key(|res| -> i32 {
                         if let Some(count) = extract_count(file_pattern, res) {
                             count as i32
@@ -109,11 +109,11 @@ impl AtomicStoreLoader {
                         }
                     })
             } else {
-                fs::create_dir_all(storage_path).context(StdIoDirOpsError)?;
+                fs::create_dir_all(storage_path).context(StdIoDirOpsSnafu)?;
                 None
             };
 
-            // let matches = glob(&path_pattern).context(GlobSyntax)?.filter_map(|path_res| extract_count(file_pattern, path_res)).collect::<BTreeMap<u32,PathBuf>>();
+            // let matches = glob(&path_pattern).context(GlobSyntaxSnafu)?.filter_map(|path_res| extract_count(file_pattern, path_res)).collect::<BTreeMap<u32,PathBuf>>();
             // TODO: more resiliant approach that may be able to recover after one or more stores are corrupted...
             // for (key, value) in matches.iter().rev() {
             //     // attempt to load, return on success
@@ -129,7 +129,7 @@ impl AtomicStoreLoader {
                     resources: HashMap::new(),
                 });
             }
-            alt_path_buf = max_match.unwrap().context(GlobRuntime)?;
+            alt_path_buf = max_match.unwrap().context(GlobRuntimeSnafu)?;
             alt_path_buf.as_path()
         };
         if !load_path.is_file() {
@@ -150,7 +150,7 @@ impl AtomicStoreLoader {
     /// Attempt to initialize a new atomic state in the specified directory; if files exist, will back up existing directory before creating
     pub fn create(storage_path: &Path, file_pattern: &str) -> Result<AtomicStoreLoader> {
         if !storage_path.exists() {
-            fs::create_dir_all(storage_path).context(StdIoDirOpsError)?;
+            fs::create_dir_all(storage_path).context(StdIoDirOpsSnafu)?;
         } else if format_archived_file_path(storage_path, file_pattern, 0).exists()
             || format_latest_file_path(storage_path, file_pattern).exists()
         {
@@ -167,9 +167,9 @@ impl AtomicStoreLoader {
             temp_path.push("temporary");
             backup_path.push(format!("backup.{}", Utc::now().timestamp()));
 
-            fs::rename(&storage_path, &temp_path).context(StdIoDirOpsError)?;
-            fs::create_dir(&storage_path).context(StdIoDirOpsError)?;
-            fs::rename(&temp_path, &backup_path).context(StdIoDirOpsError)?;
+            fs::rename(&storage_path, &temp_path).context(StdIoDirOpsSnafu)?;
+            fs::create_dir(&storage_path).context(StdIoDirOpsSnafu)?;
+            fs::rename(&temp_path, &backup_path).context(StdIoDirOpsSnafu)?;
         }
         // TODO: sane behavior if files are already present
         Ok(AtomicStoreLoader {
@@ -269,14 +269,14 @@ impl AtomicStore {
 
         let latest_file_path = format_latest_file_path(&self.file_path, &self.file_pattern);
         let temp_file_path = format_working_file_path(&self.file_path, &self.file_pattern);
-        let mut temp_file = File::create(&temp_file_path).context(StdIoOpenError)?;
+        let mut temp_file = File::create(&temp_file_path).context(StdIoOpenSnafu)?;
         let out_state = AtomicStoreFileContents {
             file_counter: self.file_counter,
             resource_files: collected_locations,
         };
-        let serialized = bincode::serialize(&out_state).context(BincodeSerError)?;
-        temp_file.write_all(&serialized).context(StdIoWriteError)?;
-        temp_file.flush().context(StdIoWriteError)?;
+        let serialized = bincode::serialize(&out_state).context(BincodeSerSnafu)?;
+        temp_file.write_all(&serialized).context(StdIoWriteSnafu)?;
+        temp_file.flush().context(StdIoWriteSnafu)?;
         if latest_file_path.exists() {
             let last_counter = if self.last_counter.is_none() {
                 let loaded_state = load_state(latest_file_path.as_path())?;
@@ -287,10 +287,10 @@ impl AtomicStore {
             let archived_file_path =
                 format_archived_file_path(&self.file_path, &self.file_pattern, last_counter);
 
-            fs::rename(&latest_file_path, &archived_file_path).context(StdIoDirOpsError)?;
+            fs::rename(&latest_file_path, &archived_file_path).context(StdIoDirOpsSnafu)?;
         }
         self.last_counter = Some(self.file_counter);
-        fs::rename(&temp_file_path, &latest_file_path).context(StdIoDirOpsError)?;
+        fs::rename(&temp_file_path, &latest_file_path).context(StdIoDirOpsSnafu)?;
         self.file_counter += 1; // advance for the next version
         Ok(())
     }

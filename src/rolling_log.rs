@@ -7,8 +7,8 @@
 
 use crate::atomic_store::AtomicStoreLoader;
 use crate::error::{
-    PersistenceError, StdIoDirOpsError, StdIoOpenError, StdIoReadError, StdIoSeekError,
-    StdIoWriteError,
+    PersistenceError, StdIoDirOpsSnafu, StdIoOpenSnafu, StdIoReadSnafu, StdIoSeekSnafu,
+    StdIoWriteSnafu,
 };
 use crate::load_store::LoadStore;
 use crate::storage_location::StorageLocation;
@@ -50,10 +50,10 @@ fn load_from_file<ResourceAdaptor: LoadStore>(
 ) -> Result<ResourceAdaptor::ParamType> {
     read_file
         .seek(SeekFrom::Start(location.store_start))
-        .context(StdIoSeekError)?;
+        .context(StdIoSeekSnafu)?;
     let mut reader = read_file.take(location.store_length as u64);
     let mut buffer = Vec::new();
-    reader.read_to_end(&mut buffer).context(StdIoReadError)?;
+    reader.read_to_end(&mut buffer).context(StdIoReadSnafu)?;
     adaptor.load(&buffer[..])
 }
 
@@ -134,9 +134,9 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
                         Utc::now().timestamp()
                     ));
                     if self.write_pos > 0 {
-                        fs::copy(&out_file_path, &backup_path).context(StdIoDirOpsError)?;
+                        fs::copy(&out_file_path, &backup_path).context(StdIoDirOpsSnafu)?;
                     } else {
-                        fs::rename(&out_file_path, &backup_path).context(StdIoDirOpsError)?;
+                        fs::rename(&out_file_path, &backup_path).context(StdIoDirOpsSnafu)?;
                     }
                 }
             }
@@ -146,34 +146,34 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
             .write(true)
             .create(true)
             .open(out_file_path.clone())
-            .context(StdIoOpenError)?;
-        file.seek(SeekFrom::End(0)).context(StdIoSeekError)?;
+            .context(StdIoOpenSnafu)?;
+        file.seek(SeekFrom::End(0)).context(StdIoSeekSnafu)?;
         self.file_entries = 0;
-        if file.stream_position().context(StdIoSeekError)? == 0 {
-            file.write_all(&[0u8; 4]).context(StdIoWriteError)?;
+        if file.stream_position().context(StdIoSeekSnafu)? == 0 {
+            file.write_all(&[0u8; 4]).context(StdIoWriteSnafu)?;
         }
-        if file.stream_position().context(StdIoSeekError)? < self.write_pos {
+        if file.stream_position().context(StdIoSeekSnafu)? < self.write_pos {
             return Err(PersistenceError::InvalidFileContents {
                 note: "file too small for last recorded entry".to_string(),
                 path: out_file_path.to_string_lossy().to_string(),
             });
         }
-        if file.stream_position().context(StdIoSeekError)? > 4 {
+        if file.stream_position().context(StdIoSeekSnafu)? > 4 {
             self.file_entries = 0;
-            let _lines = file.seek(SeekFrom::Start(0)).context(StdIoSeekError)?;
+            let _lines = file.seek(SeekFrom::Start(0)).context(StdIoSeekSnafu)?;
             let mut buffer = [0u8; 4];
-            file.read_exact(&mut buffer).context(StdIoReadError)?;
+            file.read_exact(&mut buffer).context(StdIoReadSnafu)?;
             let remembered_entries = u32::from_le_bytes(buffer);
             let mut read_position = 4u64;
             while read_position < self.write_pos {
                 let mut buffer = [0u8; 4];
-                file.read_exact(&mut buffer).context(StdIoReadError)?;
+                file.read_exact(&mut buffer).context(StdIoReadSnafu)?;
                 read_position += 4;
                 let entry_size = u32::from_le_bytes(buffer);
                 read_position += entry_size as u64;
                 let _lines = file
                     .seek(SeekFrom::Start(read_position))
-                    .context(StdIoSeekError)?;
+                    .context(StdIoSeekSnafu)?;
                 self.file_entries += 1;
             }
             if read_position > self.write_pos {
@@ -186,17 +186,17 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
                 });
             }
             if self.file_entries != remembered_entries {
-                file.seek(SeekFrom::Start(0)).context(StdIoSeekError)?;
+                file.seek(SeekFrom::Start(0)).context(StdIoSeekSnafu)?;
                 file.write_all(&self.file_entries.to_le_bytes())
-                    .context(StdIoWriteError)?;
+                    .context(StdIoWriteSnafu)?;
             }
-            file.seek(SeekFrom::End(0)).context(StdIoSeekError)?;
+            file.seek(SeekFrom::End(0)).context(StdIoSeekSnafu)?;
         }
-        if file.stream_position().context(StdIoSeekError)? > self.write_pos {
-            file.set_len(self.write_pos).context(StdIoWriteError)?;
+        if file.stream_position().context(StdIoSeekSnafu)? > self.write_pos {
+            file.set_len(self.write_pos).context(StdIoWriteSnafu)?;
             let _lines = file
                 .seek(SeekFrom::Start(self.write_pos))
-                .context(StdIoSeekError)?;
+                .context(StdIoSeekSnafu)?;
         }
         self.write_to_file = Some(file);
         assert!(self.write_pos > 0);
@@ -219,12 +219,12 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
             .as_ref()
             .unwrap()
             .write_all(&resource_length.to_le_bytes())
-            .context(StdIoWriteError)?;
+            .context(StdIoWriteSnafu)?;
         self.write_to_file
             .as_ref()
             .unwrap()
             .write_all(&serialized)
-            .context(StdIoWriteError)?;
+            .context(StdIoWriteSnafu)?;
 
         let location = StorageLocation {
             file_counter: self.write_file_counter,
@@ -238,10 +238,10 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
             if let Some(mut write_to_file) = self.write_to_file.as_ref() {
                 let _lines = write_to_file
                     .seek(SeekFrom::Start(0))
-                    .context(StdIoSeekError)?;
+                    .context(StdIoSeekSnafu)?;
                 write_to_file
                     .write_all(&self.file_entries.to_le_bytes())
-                    .context(StdIoWriteError)?;
+                    .context(StdIoWriteSnafu)?;
             }
             self.write_pos = 4;
             self.file_entries = 0;
@@ -257,13 +257,13 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
         if let Some(mut write_to_file) = self.write_to_file.as_ref() {
             let _lines = write_to_file
                 .seek(SeekFrom::Start(0))
-                .context(StdIoSeekError)?;
+                .context(StdIoSeekSnafu)?;
             write_to_file
                 .write_all(&self.file_entries.to_le_bytes())
-                .context(StdIoWriteError)?;
+                .context(StdIoWriteSnafu)?;
             let _lines = write_to_file
                 .seek(SeekFrom::Start(self.write_pos))
-                .context(StdIoSeekError)?;
+                .context(StdIoSeekSnafu)?;
         }
         self.persisted_sync.write()?.update_version()
     }
@@ -290,7 +290,7 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
     pub fn load_specified(&self, location: &StorageLocation) -> Result<ResourceAdaptor::ParamType> {
         let read_file_path =
             format_nth_file_path(&self.file_path, &self.file_pattern, location.file_counter);
-        let mut read_file = File::open(read_file_path.as_path()).context(StdIoOpenError)?;
+        let mut read_file = File::open(read_file_path.as_path()).context(StdIoOpenSnafu)?;
         load_from_file::<ResourceAdaptor>(&mut read_file, &self.adaptor, location)
     }
 }
