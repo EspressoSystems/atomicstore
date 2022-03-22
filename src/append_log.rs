@@ -343,7 +343,7 @@ mod tests {
     #[test]
     fn empty_iterator() -> Result<()> {
         let mut test_path =
-            env::current_dir().map_err(|e| PersistenceError::StdIoDirOpsSnafu { source: e })?;
+            env::current_dir().map_err(|e| PersistenceError::StdIoDirOps { source: e })?;
         test_path.push("testing_tmp");
         let mut store_loader =
             AtomicStoreLoader::create(test_path.as_path(), "append_log_test_empty_iterator")?;
