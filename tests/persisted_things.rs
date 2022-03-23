@@ -60,7 +60,7 @@ fn create_populate_drop_load() -> Result<()> {
 
 fn single_threaded_create_and_populate() -> Result<()> {
     let mut test_path =
-        env::current_dir().map_err(|e| PersistenceError::StdIoDirOpsError { source: e })?;
+        env::current_dir().map_err(|e| PersistenceError::StdIoDirOps { source: e })?;
     test_path.push("testing_tmp");
 
     let mut store_loader =
@@ -206,7 +206,7 @@ fn single_threaded_create_and_populate() -> Result<()> {
 
 fn single_threaded_load_from_files() -> Result<()> {
     let mut test_path =
-        env::current_dir().map_err(|e| PersistenceError::StdIoDirOpsError { source: e })?;
+        env::current_dir().map_err(|e| PersistenceError::StdIoDirOps { source: e })?;
     test_path.push("testing_tmp");
 
     let mut store_loader = AtomicStoreLoader::load(test_path.as_path(), "persisted_things_store")?;

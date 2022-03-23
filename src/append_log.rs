@@ -7,8 +7,8 @@
 
 use crate::atomic_store::AtomicStoreLoader;
 use crate::error::{
-    PersistenceError, StdIoDirOpsError, StdIoOpenError, StdIoReadError, StdIoSeekError,
-    StdIoWriteError,
+    PersistenceError, StdIoDirOpsSnafu, StdIoOpenSnafu, StdIoReadSnafu, StdIoSeekSnafu,
+    StdIoWriteSnafu,
 };
 use crate::fixed_append_log;
 use crate::fixed_append_log::FixedAppendLog;
@@ -65,10 +65,10 @@ fn load_from_file<ResourceAdaptor: LoadStore>(
 ) -> Result<ResourceAdaptor::ParamType> {
     read_file
         .seek(SeekFrom::Start(location.store_start))
-        .context(StdIoSeekError)?;
+        .context(StdIoSeekSnafu)?;
     let mut reader = read_file.take(location.store_length as u64);
     let mut buffer = Vec::new();
-    reader.read_to_end(&mut buffer).context(StdIoReadError)?;
+    reader.read_to_end(&mut buffer).context(StdIoReadSnafu)?;
     adaptor.load(&buffer[..])
 }
 
@@ -175,9 +175,9 @@ impl<ResourceAdaptor: LoadStore> AppendLog<ResourceAdaptor> {
                         Utc::now().timestamp()
                     ));
                     if self.write_pos > 0 {
-                        fs::copy(&out_file_path, &backup_path).context(StdIoDirOpsError)?;
+                        fs::copy(&out_file_path, &backup_path).context(StdIoDirOpsSnafu)?;
                     } else {
-                        fs::rename(&out_file_path, &backup_path).context(StdIoDirOpsError)?;
+                        fs::rename(&out_file_path, &backup_path).context(StdIoDirOpsSnafu)?;
                     }
                 }
             }
@@ -187,13 +187,13 @@ impl<ResourceAdaptor: LoadStore> AppendLog<ResourceAdaptor> {
             .write(true)
             .create(true)
             .open(out_file_path)
-            .context(StdIoOpenError)?;
-        file.seek(SeekFrom::End(0)).context(StdIoSeekError)?;
-        if file.stream_position().context(StdIoSeekError)? != self.write_pos {
-            file.set_len(self.write_pos).context(StdIoWriteError)?;
+            .context(StdIoOpenSnafu)?;
+        file.seek(SeekFrom::End(0)).context(StdIoSeekSnafu)?;
+        if file.stream_position().context(StdIoSeekSnafu)? != self.write_pos {
+            file.set_len(self.write_pos).context(StdIoWriteSnafu)?;
             let _lines = file
                 .seek(SeekFrom::Start(self.write_pos))
-                .context(StdIoSeekError)?;
+                .context(StdIoSeekSnafu)?;
         }
         self.write_to_file = Some(file);
         Ok(())
@@ -214,7 +214,7 @@ impl<ResourceAdaptor: LoadStore> AppendLog<ResourceAdaptor> {
             .as_ref()
             .unwrap()
             .write_all(&serialized)
-            .context(StdIoWriteError)?;
+            .context(StdIoWriteSnafu)?;
 
         let location = StorageLocation {
             file_counter: self.write_file_counter,
@@ -263,7 +263,7 @@ impl<ResourceAdaptor: LoadStore> AppendLog<ResourceAdaptor> {
     pub fn load_specified(&self, location: &StorageLocation) -> Result<ResourceAdaptor::ParamType> {
         let read_file_path =
             format_nth_file_path(&self.file_path, &self.file_pattern, location.file_counter);
-        let mut read_file = File::open(read_file_path.as_path()).context(StdIoOpenError)?;
+        let mut read_file = File::open(read_file_path.as_path()).context(StdIoOpenSnafu)?;
         load_from_file::<ResourceAdaptor>(&mut read_file, &self.adaptor, location)
     }
 
@@ -289,7 +289,7 @@ impl<ResourceAdaptor: LoadStore> Iter<'_, ResourceAdaptor> {
             let read_file_path =
                 format_nth_file_path(&self.file_path, &self.file_pattern, location.file_counter);
             self.read_from_file =
-                Some(File::open(read_file_path.as_path()).context(StdIoOpenError)?);
+                Some(File::open(read_file_path.as_path()).context(StdIoOpenSnafu)?);
         }
         load_from_file::<ResourceAdaptor>(
             self.read_from_file.as_mut().unwrap(),
@@ -343,7 +343,7 @@ mod tests {
     #[test]
     fn empty_iterator() -> Result<()> {
         let mut test_path =
-            env::current_dir().map_err(|e| PersistenceError::StdIoDirOpsError { source: e })?;
+            env::current_dir().map_err(|e| PersistenceError::StdIoDirOps { source: e })?;
         test_path.push("testing_tmp");
         let mut store_loader =
             AtomicStoreLoader::create(test_path.as_path(), "append_log_test_empty_iterator")?;

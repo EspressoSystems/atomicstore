@@ -5,7 +5,7 @@
 // This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 // You should have received a copy of the GNU General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use crate::error::{BincodeDeError, BincodeSerError, PersistenceError};
+use crate::error::{BincodeDeSnafu, BincodeSerSnafu, PersistenceError};
 use crate::storage_location::StorageLocation;
 use crate::Result;
 
@@ -31,10 +31,10 @@ impl<ParamType: Serialize + DeserializeOwned> LoadStore for BincodeLoadStore<Par
     type ParamType = ParamType;
 
     fn load(&self, stream: &[u8]) -> Result<Self::ParamType> {
-        bincode::deserialize(stream).context(BincodeDeError)
+        bincode::deserialize(stream).context(BincodeDeSnafu)
     }
     fn store(&mut self, param: &Self::ParamType) -> Result<Vec<u8>> {
-        bincode::serialize(param).context(BincodeSerError)
+        bincode::serialize(param).context(BincodeSerSnafu)
     }
 }
 
@@ -55,13 +55,13 @@ impl<ParamType: CanonicalSerialize + CanonicalDeserialize> LoadStore for ArkLoad
     type ParamType = ParamType;
 
     fn load(&self, stream: &[u8]) -> Result<Self::ParamType> {
-        Self::ParamType::deserialize(stream).map_err(|err| PersistenceError::ArkDeError { err })
+        Self::ParamType::deserialize(stream).map_err(|err| PersistenceError::ArkDe { err })
     }
     fn store(&mut self, param: &Self::ParamType) -> Result<Vec<u8>> {
         let mut ser_bytes: Vec<u8> = Vec::new();
         param
             .serialize(&mut ser_bytes)
-            .map_err(|err| PersistenceError::ArkSerError { err })?;
+            .map_err(|err| PersistenceError::ArkSer { err })?;
         Ok(ser_bytes)
     }
 }
