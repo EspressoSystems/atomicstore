@@ -109,7 +109,6 @@
 <span id="109">109</span>
 <span id="110">110</span>
 <span id="111">111</span>
-<span id="112">112</span>
 </pre><pre class="rust"><code><span class="comment">// Copyright (c) 2022 Espresso Systems (espressosys.com)</span>
 <span class="comment">// This file is part of the AtomicStore library.</span>
 
@@ -120,40 +119,39 @@
 <span class="kw">use</span> <span class="ident">ark_serialize</span>;
 <span class="kw">use</span> <span class="ident">bincode</span>;
 <span class="kw">use</span> <span class="ident">glob</span>;
-<span class="kw">use</span> <span class="ident">snafu::Snafu</span>;
+<span class="kw">use</span> <span class="ident">snafu::prelude</span>::<span class="kw-2">*</span>;
 
 <span class="doccomment">/// Error type for AtomicStore</span>
 <span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Debug</span>, <span class="ident">Snafu</span>)]</span>
-<span class="attribute">#[<span class="ident">snafu</span>(<span class="ident">visibility</span> <span class="op">=</span> <span class="string">&quot;pub(crate)&quot;</span>)]</span>
-<span class="attribute">#[<span class="ident">non_exhaustive</span>]</span>
+<span class="attribute">#[<span class="ident">snafu</span>(<span class="ident">visibility</span>(<span class="kw">pub</span>(<span class="kw">crate</span>)))]</span>
 <span class="kw">pub</span> <span class="kw">enum</span> <span class="ident">PersistenceError</span> {
     <span class="doccomment">/// Failed to resolve path</span>
-    <span class="attribute">#[<span class="ident">snafu</span>(<span class="ident">display</span>(<span class="string">&quot;Failed to resolve a path &#39;{:?}&#39;&quot;</span>, <span class="ident">path</span>))]</span>
+    <span class="attribute">#[<span class="ident">snafu</span>(<span class="ident">display</span>(<span class="string">&quot;Failed to resolve a path &#39;{path}&#39;&quot;</span>))]</span>
     <span class="ident">FailedToResolvePath</span> {
         <span class="doccomment">/// The provided path</span>
         <span class="ident">path</span>: <span class="ident">String</span>,
     },
     <span class="doccomment">/// Failed to find resource</span>
-    <span class="attribute">#[<span class="ident">snafu</span>(<span class="ident">display</span>(<span class="string">&quot;Failed to find an expected resource &#39;{:?}&#39;&quot;</span>, <span class="ident">key</span>))]</span>
+    <span class="attribute">#[<span class="ident">snafu</span>(<span class="ident">display</span>(<span class="string">&quot;Failed to find an expected resource &#39;{key}&#39;&quot;</span>))]</span>
     <span class="ident">FailedToFindExpectedResource</span> {
         <span class="doccomment">/// The resource key</span>
         <span class="ident">key</span>: <span class="ident">String</span>,
     },
     <span class="doccomment">/// Path to file is invalid</span>
-    <span class="attribute">#[<span class="ident">snafu</span>(<span class="ident">display</span>(<span class="string">&quot;Path &#39;{:?}&#39; cannot be used for a file&quot;</span>, <span class="ident">path</span>))]</span>
+    <span class="attribute">#[<span class="ident">snafu</span>(<span class="ident">display</span>(<span class="string">&quot;Path &#39;{path}&#39; cannot be used for a file&quot;</span>))]</span>
     <span class="ident">InvalidPathToFile</span> {
         <span class="doccomment">/// The provided path</span>
         <span class="ident">path</span>: <span class="ident">String</span>,
     },
     <span class="doccomment">/// Path to file is invalid</span>
-    <span class="attribute">#[<span class="ident">snafu</span>(<span class="ident">display</span>(<span class="string">&quot;File {:?} does not contain valid data&quot;</span>, <span class="ident">path</span>))]</span>
+    <span class="attribute">#[<span class="ident">snafu</span>(<span class="ident">display</span>(<span class="string">&quot;File &#39;{path}&#39; does not contain valid data: note: &#39;{note}&#39;&quot;</span>))]</span>
     <span class="ident">InvalidFileContents</span> {
         <span class="ident">note</span>: <span class="ident">String</span>,
         <span class="doccomment">/// The provided path</span>
         <span class="ident">path</span>: <span class="ident">String</span>,
     },
     <span class="doccomment">/// Failed to write to file</span>
-    <span class="attribute">#[<span class="ident">snafu</span>(<span class="ident">display</span>(<span class="string">&quot;Failed to write resource to file {:?} at {}&quot;</span>, <span class="ident">filename</span>, <span class="ident">position</span>))]</span>
+    <span class="attribute">#[<span class="ident">snafu</span>(<span class="ident">display</span>(<span class="string">&quot;Failed to write resource to file &#39;{filename}&#39; at {position}&quot;</span>))]</span>
     <span class="ident">FailedToWriteToFile</span> {
         <span class="doccomment">/// The name of the actual file</span>
         <span class="ident">filename</span>: <span class="ident">String</span>,
@@ -161,48 +159,48 @@
         <span class="ident">position</span>: <span class="ident">u64</span>,
     },
     <span class="doccomment">/// Duplicate resource name</span>
-    <span class="attribute">#[<span class="ident">snafu</span>(<span class="ident">display</span>(<span class="string">&quot;Resource key collision for {}&quot;</span>, <span class="ident">key</span>))]</span>
+    <span class="attribute">#[<span class="ident">snafu</span>(<span class="ident">display</span>(<span class="string">&quot;Resource key collision for &#39;{key}&#39;&quot;</span>))]</span>
     <span class="ident">DuplicateResourceKey</span> {
         <span class="doccomment">/// Resource key/file pattern</span>
         <span class="ident">key</span>: <span class="ident">String</span>,
     },
     <span class="doccomment">/// Stored state mismatch with load specification</span>
-    <span class="attribute">#[<span class="ident">snafu</span>(<span class="ident">display</span>(<span class="string">&quot;Stored state for {} is inconsistent with startup specification&quot;</span>, <span class="ident">key</span>))]</span>
+    <span class="attribute">#[<span class="ident">snafu</span>(<span class="ident">display</span>(<span class="string">&quot;Stored state for &#39;{key}&#39; is inconsistent with startup specification&quot;</span>))]</span>
     <span class="ident">ResourceFormatInconsistent</span> {
         <span class="doccomment">/// Resource key/file pattern</span>
         <span class="ident">key</span>: <span class="ident">String</span>,
     },
     <span class="doccomment">/// Unimplemented feature</span>
-    <span class="attribute">#[<span class="ident">snafu</span>(<span class="ident">display</span>(<span class="string">&quot;Feature not yet implemented: {}&quot;</span>, <span class="ident">description</span>))]</span>
+    <span class="attribute">#[<span class="ident">snafu</span>(<span class="ident">display</span>(<span class="string">&quot;Feature not yet implemented: {description}&quot;</span>))]</span>
     <span class="ident">FeatureNotYetImplemented</span> { <span class="ident">description</span>: <span class="ident">String</span> },
     <span class="doccomment">/// std::io directory operations error</span>
-    <span class="ident">StdIoDirOpsError</span> { <span class="ident">source</span>: <span class="ident">std::io::Error</span> },
+    <span class="ident">StdIoDirOps</span> { <span class="ident">source</span>: <span class="ident">std::io::Error</span> },
     <span class="doccomment">/// std::io open error</span>
-    <span class="ident">StdIoOpenError</span> { <span class="ident">source</span>: <span class="ident">std::io::Error</span> },
+    <span class="ident">StdIoOpen</span> { <span class="ident">source</span>: <span class="ident">std::io::Error</span> },
     <span class="doccomment">/// std::io seek error</span>
-    <span class="ident">StdIoSeekError</span> { <span class="ident">source</span>: <span class="ident">std::io::Error</span> },
+    <span class="ident">StdIoSeek</span> { <span class="ident">source</span>: <span class="ident">std::io::Error</span> },
     <span class="doccomment">/// std::io write error</span>
-    <span class="ident">StdIoWriteError</span> { <span class="ident">source</span>: <span class="ident">std::io::Error</span> },
+    <span class="ident">StdIoWrite</span> { <span class="ident">source</span>: <span class="ident">std::io::Error</span> },
     <span class="doccomment">/// std::io read error</span>
-    <span class="ident">StdIoReadError</span> { <span class="ident">source</span>: <span class="ident">std::io::Error</span> },
+    <span class="ident">StdIoRead</span> { <span class="ident">source</span>: <span class="ident">std::io::Error</span> },
     <span class="doccomment">/// Bincode serialization error</span>
-    <span class="ident">BincodeSerError</span> { <span class="ident">source</span>: <span class="ident">bincode::Error</span> },
+    <span class="ident">BincodeSer</span> { <span class="ident">source</span>: <span class="ident">bincode::Error</span> },
     <span class="doccomment">/// Bincode deserialization error</span>
-    <span class="ident">BincodeDeError</span> { <span class="ident">source</span>: <span class="ident">bincode::Error</span> },
+    <span class="ident">BincodeDe</span> { <span class="ident">source</span>: <span class="ident">bincode::Error</span> },
     <span class="doccomment">/// ArkWorks serialization error</span>
     <span class="attribute">#[<span class="ident">snafu</span>(<span class="ident">display</span>(<span class="string">&quot;Arkworks Serialization Error on write: {}&quot;</span>, <span class="ident">err</span>))]</span>
-    <span class="ident">ArkSerError</span> {
+    <span class="ident">ArkSer</span> {
         <span class="ident">err</span>: <span class="ident">ark_serialize::SerializationError</span>,
     },
     <span class="doccomment">/// ArkWorks deserialization error</span>
     <span class="attribute">#[<span class="ident">snafu</span>(<span class="ident">display</span>(<span class="string">&quot;Arkworks Serialization Error on read: {}&quot;</span>, <span class="ident">err</span>))]</span>
-    <span class="ident">ArkDeError</span> {
+    <span class="ident">ArkDe</span> {
         <span class="ident">err</span>: <span class="ident">ark_serialize::SerializationError</span>,
     },
-    <span class="ident">OtherStoreError</span> {
+    <span class="ident">OtherStore</span> {
         <span class="ident">inner</span>: <span class="ident">Box</span><span class="op">&lt;</span><span class="kw">dyn</span> <span class="ident">std::error::Error</span> <span class="op">+</span> <span class="ident">Send</span> <span class="op">+</span> <span class="ident">Sync</span><span class="op">&gt;</span>,
     },
-    <span class="ident">OtherLoadError</span> {
+    <span class="ident">OtherLoad</span> {
         <span class="ident">inner</span>: <span class="ident">Box</span><span class="op">&lt;</span><span class="kw">dyn</span> <span class="ident">std::error::Error</span> <span class="op">+</span> <span class="ident">Send</span> <span class="op">+</span> <span class="ident">Sync</span><span class="op">&gt;</span>,
     },
     <span class="doccomment">/// Glob syntax error</span>
@@ -210,14 +208,14 @@
     <span class="doccomment">/// Glob iteration error</span>
     <span class="ident">GlobRuntime</span> { <span class="ident">source</span>: <span class="ident">glob::GlobError</span> },
     <span class="doccomment">/// Placeholder for PoisonError specializations</span>
-    <span class="ident">SyncPoisonError</span> { <span class="ident">description</span>: <span class="ident">String</span> },
+    <span class="ident">SyncPoison</span> { <span class="ident">description</span>: <span class="ident">String</span> },
     <span class="doccomment">/// `AtomicStore::commit_version` took to long to wait for Log versions and timed out</span>
     <span class="ident">TimedOut</span>,
 }
 
 <span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="ident">From</span><span class="op">&lt;</span><span class="ident">std::sync::PoisonError</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span><span class="op">&gt;</span> <span class="kw">for</span> <span class="ident">PersistenceError</span> {
     <span class="kw">fn</span> <span class="ident">from</span>(<span class="ident">error</span>: <span class="ident">std::sync::PoisonError</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="self">Self</span> {
-        <span class="ident">PersistenceError::SyncPoisonError</span> {
+        <span class="ident">PersistenceError::SyncPoison</span> {
             <span class="ident">description</span>: <span class="ident">error</span>.<span class="ident">to_string</span>(),
         }
     }
