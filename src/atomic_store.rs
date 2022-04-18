@@ -10,10 +10,10 @@ use crate::error::{
     StdIoDirOpsSnafu, StdIoOpenSnafu, StdIoReadSnafu, StdIoWriteSnafu,
 };
 use crate::storage_location::StorageLocation;
+use crate::utils::unix_timestamp;
 use crate::version_sync::VersionSyncHandle;
 use crate::Result;
 
-use chrono::Utc;
 use glob::glob;
 use serde::{Deserialize, Serialize};
 use snafu::ResultExt;
@@ -165,7 +165,7 @@ impl AtomicStoreLoader {
                 });
             }
             temp_path.push("temporary");
-            backup_path.push(format!("backup.{}", Utc::now().timestamp()));
+            backup_path.push(format!("backup.{}", unix_timestamp()));
 
             fs::rename(&storage_path, &temp_path).context(StdIoDirOpsSnafu)?;
             fs::create_dir(&storage_path).context(StdIoDirOpsSnafu)?;

@@ -12,10 +12,10 @@ use crate::error::{
 };
 use crate::load_store::LoadStore;
 use crate::storage_location::StorageLocation;
+use crate::utils::unix_timestamp;
 use crate::version_sync::VersionSyncHandle;
 use crate::Result;
 
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use snafu::ResultExt;
 
@@ -269,7 +269,7 @@ impl<ResourceAdaptor: LoadStore + Default> FixedAppendLog<ResourceAdaptor> {
                         self.file_pattern,
                         range_begin,
                         range_end,
-                        Utc::now().timestamp()
+                        unix_timestamp()
                     ));
                     if file_index > 0 {
                         fs::copy(&out_file_path, &backup_path).context(StdIoDirOpsSnafu)?;
