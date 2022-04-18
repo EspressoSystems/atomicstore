@@ -386,10 +386,10 @@
 <span class="kw">use</span> <span class="ident"><span class="kw">crate</span>::fixed_append_log::FixedAppendLog</span>;
 <span class="kw">use</span> <span class="ident"><span class="kw">crate</span>::load_store</span>::{<span class="ident">LoadStore</span>, <span class="ident">StorageLocationLoadStore</span>};
 <span class="kw">use</span> <span class="ident"><span class="kw">crate</span>::storage_location</span>::{<span class="ident">StorageLocation</span>, <span class="ident">STORAGE_LOCATION_SERIALIZED_SIZE</span>};
+<span class="kw">use</span> <span class="ident"><span class="kw">crate</span>::utils::unix_timestamp</span>;
 <span class="kw">use</span> <span class="ident"><span class="kw">crate</span>::version_sync::VersionSyncHandle</span>;
 <span class="kw">use</span> <span class="ident"><span class="kw">crate</span>::Result</span>;
 
-<span class="kw">use</span> <span class="ident">chrono::Utc</span>;
 <span class="kw">use</span> <span class="ident">snafu::ResultExt</span>;
 
 <span class="kw">use</span> <span class="ident">std::fs</span>;
@@ -544,7 +544,7 @@
                         <span class="string">&quot;{}_{}.bak.{}&quot;</span>,
                         <span class="self">self</span>.<span class="ident">file_pattern</span>,
                         <span class="self">self</span>.<span class="ident">write_file_counter</span>,
-                        <span class="ident">Utc::now</span>().<span class="ident">timestamp</span>()
+                        <span class="ident">unix_timestamp</span>()
                     ));
                     <span class="kw">if</span> <span class="self">self</span>.<span class="ident">write_pos</span> <span class="op">&gt;</span> <span class="number">0</span> {
                         <span class="ident">fs::copy</span>(<span class="kw-2">&amp;</span><span class="ident">out_file_path</span>, <span class="kw-2">&amp;</span><span class="ident">backup_path</span>).<span class="ident">context</span>(<span class="ident">StdIoDirOpsSnafu</span>)<span class="question-mark">?</span>;
