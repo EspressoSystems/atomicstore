@@ -46,7 +46,7 @@ jobs:
           args: -- -D warnings
 
       - name: Audit
-        run: cargo audit --ignore RUSTSEC-2020-0159
+        run: cargo audit
 
       - name: Build
         run: cargo build --release --examples
