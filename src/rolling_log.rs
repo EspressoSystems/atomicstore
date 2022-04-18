@@ -12,10 +12,10 @@ use crate::error::{
 };
 use crate::load_store::LoadStore;
 use crate::storage_location::StorageLocation;
+use crate::utils::unix_timestamp;
 use crate::version_sync::VersionSyncHandle;
 use crate::Result;
 
-use chrono::Utc;
 use snafu::ResultExt;
 
 use std::fs;
@@ -131,7 +131,7 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
                         "{}_{}.bak.{}",
                         self.file_pattern,
                         self.write_file_counter,
-                        Utc::now().timestamp()
+                        unix_timestamp()
                     ));
                     if self.write_pos > 0 {
                         fs::copy(&out_file_path, &backup_path).context(StdIoDirOpsSnafu)?;

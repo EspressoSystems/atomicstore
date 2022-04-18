@@ -8,6 +8,8 @@
 #[cfg(test)]
 mod testing;
 
+mod utils;
+
 #[cfg(test)]
 #[macro_use]
 extern crate quickcheck_macros;
