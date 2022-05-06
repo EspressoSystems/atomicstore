@@ -321,7 +321,7 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
                 deleting = total_entries >= self.retained_entries;
             }
         }
-        return Ok(());
+        Ok(())
     }
 }
 
