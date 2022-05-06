@@ -24,7 +24,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
-const DEFAULT_RETAINED_ENTRIES: u32 = 1024;
+const DEFAULT_RETAINED_ENTRIES: u32 = 128;
 
 #[derive(Debug)]
 pub struct RollingLog<ResourceAdaptor: LoadStore> {
@@ -67,6 +67,7 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
         file_path: &Path,
         file_pattern: &str,
         file_fill_size: u64,
+        retained_entries: u32,
     ) -> Result<RollingLog<ResourceAdaptor>> {
         let (write_pos, counter) = match location {
             Some(ref location) => {
@@ -89,7 +90,7 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
             file_entries: 0,
             write_file_counter: counter,
             adaptor,
-            retained_entries: DEFAULT_RETAINED_ENTRIES,
+            retained_entries,
         })
     }
 
@@ -101,7 +102,14 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
     ) -> Result<RollingLog<ResourceAdaptor>> {
         let resource = loader.look_up_resource(file_pattern);
         let path = loader.persistence_path().to_path_buf();
-        let created = Self::open_impl(adaptor, resource, &path, file_pattern, file_fill_size)?;
+        let created = Self::open_impl(
+            adaptor,
+            resource,
+            &path,
+            file_pattern,
+            file_fill_size,
+            DEFAULT_RETAINED_ENTRIES,
+        )?;
         loader.add_sync_handle(file_pattern, created.persisted_sync.clone())?;
         Ok(created)
     }
@@ -112,7 +120,14 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
         file_fill_size: u64,
     ) -> Result<RollingLog<ResourceAdaptor>> {
         let path = loader.persistence_path().to_path_buf();
-        let created = Self::open_impl(adaptor, None, &path, file_pattern, file_fill_size)?;
+        let created = Self::open_impl(
+            adaptor,
+            None,
+            &path,
+            file_pattern,
+            file_fill_size,
+            DEFAULT_RETAINED_ENTRIES,
+        )?;
         loader.add_sync_handle(file_pattern, created.persisted_sync.clone())?;
         Ok(created)
     }
@@ -304,21 +319,30 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
 
     // Prune write files after the total number of entries exceeds the retained number
     pub fn prune_file_entries(&self) -> Result<()> {
-        let mut total_entries = 0;
-        let mut deleting = false;
-        for file_count in (0..self.write_file_counter + 1).rev() {
-            let path = format_nth_file_path(&self.file_path, &self.file_pattern, file_count);
-            if !path.exists() {
-                continue;
-            } else if deleting {
-                fs::remove_file(path).context(StdIoDirOpsSnafu)?;
-            } else {
-                let mut read_file = File::open(path).context(StdIoOpenSnafu)?;
-                let mut buffer = [0u8; 4];
-                read_file.read_exact(&mut buffer).context(StdIoReadSnafu)?;
-                let remembered_entries = u32::from_le_bytes(buffer);
-                total_entries += remembered_entries;
-                deleting = total_entries >= self.retained_entries;
+        if let Some(commit_pos) = self.persisted_sync.read()?.last_location() {
+            let mut file_index = commit_pos.file_counter;
+            let mut retained_counter = self
+                .retained_entries
+                .checked_sub(commit_pos.store_length)
+                .unwrap_or(0);
+            loop {
+                if file_index == 0 {
+                    break;
+                }
+                file_index -= 1;
+
+                let path = format_nth_file_path(&self.file_path, &self.file_pattern, file_index);
+                if !path.exists() {
+                    break;
+                } else if retained_counter == 0 {
+                    fs::remove_file(path).context(StdIoDirOpsSnafu)?;
+                } else {
+                    let mut read_file = File::open(path).context(StdIoOpenSnafu)?;
+                    let mut buffer = [0u8; 4];
+                    read_file.read_exact(&mut buffer).context(StdIoReadSnafu)?;
+                    let store_length = u32::from_le_bytes(buffer);
+                    retained_counter = retained_counter.checked_sub(store_length).unwrap_or(0);
+                }
             }
         }
         Ok(())
