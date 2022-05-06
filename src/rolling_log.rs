@@ -323,8 +323,7 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
             let mut file_index = commit_pos.file_counter;
             let mut retained_counter = self
                 .retained_entries
-                .checked_sub(commit_pos.store_length)
-                .unwrap_or(0);
+                .saturating_sub(commit_pos.store_length);
             loop {
                 if file_index == 0 {
                     break;
@@ -341,7 +340,7 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
                     let mut buffer = [0u8; 4];
                     read_file.read_exact(&mut buffer).context(StdIoReadSnafu)?;
                     let store_length = u32::from_le_bytes(buffer);
-                    retained_counter = retained_counter.checked_sub(store_length).unwrap_or(0);
+                    retained_counter = retained_counter.saturating_sub(store_length);
                 }
             }
         }
