@@ -24,6 +24,8 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
+const DEFAULT_RETAINED_ENTRIES: u32 = 1024;
+
 #[derive(Debug)]
 pub struct RollingLog<ResourceAdaptor: LoadStore> {
     persisted_sync: Arc<RwLock<VersionSyncHandle>>,
@@ -35,6 +37,7 @@ pub struct RollingLog<ResourceAdaptor: LoadStore> {
     file_entries: u32,
     write_file_counter: u32,
     adaptor: ResourceAdaptor,
+    retained_entries: u32,
 }
 
 fn format_nth_file_path(root_path: &Path, file_pattern: &str, file_count: u32) -> PathBuf {
@@ -86,6 +89,7 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
             file_entries: 0,
             write_file_counter: counter,
             adaptor,
+            retained_entries: DEFAULT_RETAINED_ENTRIES,
         })
     }
 
@@ -292,5 +296,61 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
             format_nth_file_path(&self.file_path, &self.file_pattern, location.file_counter);
         let mut read_file = File::open(read_file_path.as_path()).context(StdIoOpenSnafu)?;
         load_from_file::<ResourceAdaptor>(&mut read_file, &self.adaptor, location)
+    }
+
+    pub fn set_retained_entries(&mut self, retained_entries: u32) {
+        self.retained_entries = retained_entries;
+    }
+
+    // Prune write files after the total number of entries exceeds the retained number
+    pub fn prune_file_entries(&self) -> Result<()> {
+        let mut total_entries = 0;
+        let mut deleting = false;
+        for file_count in (0..self.write_file_counter + 1).rev() {
+            let path = format_nth_file_path(&self.file_path, &self.file_pattern, file_count);
+            if !path.exists() {
+                continue;
+            } else if deleting {
+                fs::remove_file(path).context(StdIoDirOpsSnafu)?;
+            } else {
+                let mut read_file = File::open(path).context(StdIoOpenSnafu)?;
+                let mut buffer = [0u8; 4];
+                read_file.read_exact(&mut buffer).context(StdIoReadSnafu)?;
+                let remembered_entries = u32::from_le_bytes(buffer);
+                total_entries += remembered_entries;
+                deleting = total_entries >= self.retained_entries;
+            }
+        }
+        return Ok(());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::load_store::BincodeLoadStore;
+    use tempfile::TempDir;
+
+    #[test]
+    fn prune_file_entries() -> Result<()> {
+        let loader_tag = "test_key";
+        let value_tag = format!("{}_type", loader_tag);
+        let dir: TempDir = tempfile::Builder::new().tempdir().unwrap();
+        let mut loader = AtomicStoreLoader::load(dir.path(), loader_tag).unwrap();
+        let mut log: RollingLog<BincodeLoadStore<u64>> =
+            RollingLog::load(&mut loader, Default::default(), &value_tag, 1).unwrap();
+
+        log.store_resource(&5).unwrap();
+        log.store_resource(&5).unwrap();
+        log.commit_version().unwrap();
+
+        let first_file_path = format_nth_file_path(dir.path(), &value_tag, 0);
+        assert!(first_file_path.exists());
+
+        log.set_retained_entries(1);
+        log.prune_file_entries().unwrap();
+        assert!(!first_file_path.exists());
+
+        Ok(())
     }
 }

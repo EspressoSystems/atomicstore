@@ -30,7 +30,7 @@ struct ComponentPersistence {
 }
 
 impl ComponentPersistence {
-    pub fn new((store_path: &Path, key_tag: &str) -> Result<ComponentPersistence, PersistenceError> {
+    pub fn new(store_path: &Path, key_tag: &str) -> Result<ComponentPersistence, PersistenceError> {
         let mut loader = AtomicStoreLoader::load(&transform_path(store_path), key_tag)?;
         let type_x_tag = format!("{}_type_x", key_tag);
         let type_y_tag = format!("{}_type_y", key_tag);
@@ -43,11 +43,11 @@ impl ComponentPersistence {
             type_y_snapshots,
         })
     }
-    pub fn store_x((&mut self, x_element: &TypeX) {
+    pub fn store_x(&mut self, x_element: &TypeX) {
         self.type_x_array_history.store_resource(x_element).unwrap();
     }
 
-    pub fn store_y((&mut self, y_element: &TypeY) {
+    pub fn store_y(&mut self, y_element: &TypeY) {
         self.type_y_snapshots.store_resource(y_element).unwrap();
     }
 
