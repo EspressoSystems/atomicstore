@@ -24,6 +24,8 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
+const DEFAULT_RETAINED_ENTRIES: u32 = 128;
+
 #[derive(Debug)]
 pub struct RollingLog<ResourceAdaptor: LoadStore> {
     persisted_sync: Arc<RwLock<VersionSyncHandle>>,
@@ -35,6 +37,7 @@ pub struct RollingLog<ResourceAdaptor: LoadStore> {
     file_entries: u32,
     write_file_counter: u32,
     adaptor: ResourceAdaptor,
+    retained_entries: u32,
 }
 
 fn format_nth_file_path(root_path: &Path, file_pattern: &str, file_count: u32) -> PathBuf {
@@ -64,6 +67,7 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
         file_path: &Path,
         file_pattern: &str,
         file_fill_size: u64,
+        retained_entries: u32,
     ) -> Result<RollingLog<ResourceAdaptor>> {
         let (write_pos, counter) = match location {
             Some(ref location) => {
@@ -86,6 +90,7 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
             file_entries: 0,
             write_file_counter: counter,
             adaptor,
+            retained_entries,
         })
     }
 
@@ -97,7 +102,14 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
     ) -> Result<RollingLog<ResourceAdaptor>> {
         let resource = loader.look_up_resource(file_pattern);
         let path = loader.persistence_path().to_path_buf();
-        let created = Self::open_impl(adaptor, resource, &path, file_pattern, file_fill_size)?;
+        let created = Self::open_impl(
+            adaptor,
+            resource,
+            &path,
+            file_pattern,
+            file_fill_size,
+            DEFAULT_RETAINED_ENTRIES,
+        )?;
         loader.add_sync_handle(file_pattern, created.persisted_sync.clone())?;
         Ok(created)
     }
@@ -108,7 +120,14 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
         file_fill_size: u64,
     ) -> Result<RollingLog<ResourceAdaptor>> {
         let path = loader.persistence_path().to_path_buf();
-        let created = Self::open_impl(adaptor, None, &path, file_pattern, file_fill_size)?;
+        let created = Self::open_impl(
+            adaptor,
+            None,
+            &path,
+            file_pattern,
+            file_fill_size,
+            DEFAULT_RETAINED_ENTRIES,
+        )?;
         loader.add_sync_handle(file_pattern, created.persisted_sync.clone())?;
         Ok(created)
     }
@@ -292,5 +311,69 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
             format_nth_file_path(&self.file_path, &self.file_pattern, location.file_counter);
         let mut read_file = File::open(read_file_path.as_path()).context(StdIoOpenSnafu)?;
         load_from_file::<ResourceAdaptor>(&mut read_file, &self.adaptor, location)
+    }
+
+    pub fn set_retained_entries(&mut self, retained_entries: u32) {
+        self.retained_entries = retained_entries;
+    }
+
+    // Prune write files after the total number of entries exceeds the retained number
+    pub fn prune_file_entries(&self) -> Result<()> {
+        if let Some(commit_pos) = self.persisted_sync.read()?.last_location() {
+            let mut file_index = commit_pos.file_counter;
+            let mut retained_counter = self
+                .retained_entries
+                .saturating_sub(commit_pos.store_length);
+            loop {
+                if file_index == 0 {
+                    break;
+                }
+                file_index -= 1;
+
+                let path = format_nth_file_path(&self.file_path, &self.file_pattern, file_index);
+                if !path.exists() {
+                    break;
+                } else if retained_counter == 0 {
+                    fs::remove_file(path).context(StdIoDirOpsSnafu)?;
+                } else {
+                    let mut read_file = File::open(path).context(StdIoOpenSnafu)?;
+                    let mut buffer = [0u8; 4];
+                    read_file.read_exact(&mut buffer).context(StdIoReadSnafu)?;
+                    let store_length = u32::from_le_bytes(buffer);
+                    retained_counter = retained_counter.saturating_sub(store_length);
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::load_store::BincodeLoadStore;
+    use tempfile::TempDir;
+
+    #[test]
+    fn prune_file_entries() -> Result<()> {
+        let loader_tag = "test_key";
+        let value_tag = format!("{}_type", loader_tag);
+        let dir: TempDir = tempfile::Builder::new().tempdir().unwrap();
+        let mut loader = AtomicStoreLoader::load(dir.path(), loader_tag).unwrap();
+        let mut log: RollingLog<BincodeLoadStore<u64>> =
+            RollingLog::load(&mut loader, Default::default(), &value_tag, 1).unwrap();
+
+        log.store_resource(&5).unwrap();
+        log.store_resource(&5).unwrap();
+        log.commit_version().unwrap();
+
+        let first_file_path = format_nth_file_path(dir.path(), &value_tag, 0);
+        assert!(first_file_path.exists());
+
+        log.set_retained_entries(1);
+        log.prune_file_entries().unwrap();
+        assert!(!first_file_path.exists());
+
+        Ok(())
     }
 }
