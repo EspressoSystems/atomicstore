@@ -60,6 +60,21 @@ fn load_from_file<ResourceAdaptor: LoadStore>(
     adaptor.load(&buffer[..])
 }
 
+// Returns the next file position and file counter
+fn get_next_write_position(location: &Option<StorageLocation>, file_fill_size: u64) -> (u64, u32) {
+    match location {
+        Some(ref location) => {
+            let append_point = location.store_start + location.store_length as u64;
+            if append_point < file_fill_size {
+                (append_point, location.file_counter)
+            } else {
+                (4, location.file_counter + 1)
+            }
+        }
+        None => (4, 0), // every rolling file starts with a counter
+    }
+}
+
 impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
     pub(crate) fn open_impl(
         adaptor: ResourceAdaptor,
@@ -69,17 +84,7 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
         file_fill_size: u64,
         retained_entries: u32,
     ) -> Result<RollingLog<ResourceAdaptor>> {
-        let (write_pos, counter) = match location {
-            Some(ref location) => {
-                let append_point = location.store_start + location.store_length as u64;
-                if append_point < file_fill_size {
-                    (append_point, location.file_counter)
-                } else {
-                    (4, location.file_counter + 1)
-                }
-            }
-            None => (4, 0), // every rolling file starts with a counter
-        };
+        let (write_pos, counter) = get_next_write_position(&location, file_fill_size);
         Ok(RollingLog {
             persisted_sync: Arc::new(RwLock::new(VersionSyncHandle::new(file_pattern, location))),
             file_path: file_path.to_path_buf(),
@@ -292,7 +297,13 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
     }
 
     pub fn revert_version(&mut self) -> Result<()> {
+        let (write_pos, counter) = get_next_write_position(
+            self.persisted_sync.read()?.last_location(),
+            self.file_fill_size,
+        );
         self.write_to_file = None;
+        self.write_pos = write_pos;
+        self.write_file_counter = counter;
         self.persisted_sync.write()?.revert_version()
     }
 
@@ -374,6 +385,23 @@ mod tests {
         log.prune_file_entries().unwrap();
         assert!(!first_file_path.exists());
 
+        Ok(())
+    }
+
+    #[test]
+    fn revert_log() -> Result<()> {
+        let loader_tag = "test_key";
+        let value_tag = format!("{}_type", loader_tag);
+        let dir: TempDir = tempfile::Builder::new().tempdir().unwrap();
+        let mut loader = AtomicStoreLoader::load(dir.path(), loader_tag).unwrap();
+        let mut log: RollingLog<BincodeLoadStore<u64>> =
+            RollingLog::load(&mut loader, Default::default(), &value_tag, 1).unwrap();
+        log.store_resource(&5).unwrap();
+        log.store_resource(&5).unwrap();
+        log.revert_version().unwrap();
+        let location = log.store_resource(&5).unwrap();
+        assert!(location.file_counter == 0);
+        assert!(location.store_start == 8); // 4 bytes for value, 4 bytes for the length
         Ok(())
     }
 }
