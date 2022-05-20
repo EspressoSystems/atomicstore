@@ -1,1 +1,1 @@
-initSidebarItems({"constant":[["DEFAULT_RETAINED_ENTRIES",""]],"fn":[["format_nth_file_path",""],["load_from_file",""]],"struct":[["RollingLog",""]]});
+initSidebarItems({"constant":[["DEFAULT_RETAINED_ENTRIES",""]],"fn":[["format_nth_file_path",""],["get_next_write_position",""],["load_from_file",""]],"struct":[["RollingLog",""]]});
