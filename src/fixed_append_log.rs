@@ -317,6 +317,10 @@ impl<ResourceAdaptor: LoadStore + Default> FixedAppendLog<ResourceAdaptor> {
 
         self.write_index += 1;
         if self.write_index % self.file_size == 0 {
+            if let Some(ref mut file) = self.write_to_file {
+                file.flush().context(StdIoWriteSnafu)?; // drop is not guaranteed to report errors
+                file.sync_all().context(StdIoDirOpsSnafu)?;
+            }
             self.write_to_file = None;
         }
         self.persisted_sync.write()?.advance_next(Some(location));
@@ -340,10 +344,17 @@ impl<ResourceAdaptor: LoadStore + Default> FixedAppendLog<ResourceAdaptor> {
 
         let serialized = bincode::serialize(&contents).context(BincodeSerSnafu)?;
 
+        if let Some(ref mut file) = self.write_to_file {
+            file.flush().context(StdIoWriteSnafu)?; // drop is not guaranteed to report errors
+            file.sync_all().context(StdIoDirOpsSnafu)?;
+        }
+
         let mut write_index_file = File::create(&working_file_path).context(StdIoOpenSnafu)?;
         write_index_file
             .write_all(&serialized)
             .context(StdIoWriteSnafu)?;
+        write_index_file.flush().context(StdIoWriteSnafu)?; // drop is not guaranteed to report errors
+        write_index_file.sync_all().context(StdIoDirOpsSnafu)?;
         if index_file_path.exists() {
             if backup_file_path.exists() {
                 fs::remove_file(&backup_file_path).context(StdIoDirOpsSnafu)?;

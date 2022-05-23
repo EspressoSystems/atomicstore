@@ -259,13 +259,15 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
         self.write_pos += (4 + resource_length) as u64;
         self.file_entries += 1;
         if self.write_pos >= self.file_fill_size {
-            if let Some(mut write_to_file) = self.write_to_file.as_ref() {
+            if let Some(write_to_file) = self.write_to_file.as_mut() {
                 let _lines = write_to_file
                     .seek(SeekFrom::Start(0))
                     .context(StdIoSeekSnafu)?;
                 write_to_file
                     .write_all(&self.file_entries.to_le_bytes())
                     .context(StdIoWriteSnafu)?;
+                write_to_file.flush().context(StdIoWriteSnafu)?;
+                write_to_file.sync_all().context(StdIoDirOpsSnafu)?;
             }
             self.write_pos = 4;
             self.file_entries = 0;
@@ -278,7 +280,7 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
 
     // This currenty won't have any effect if called again before the atomic store has processed the prior committed version. A more appropriate behavior might be to block. A version that supports queued writes could enqueue the commit points.
     pub fn commit_version(&mut self) -> Result<()> {
-        if let Some(mut write_to_file) = self.write_to_file.as_ref() {
+        if let Some(write_to_file) = self.write_to_file.as_mut() {
             let _lines = write_to_file
                 .seek(SeekFrom::Start(0))
                 .context(StdIoSeekSnafu)?;
@@ -288,6 +290,8 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
             let _lines = write_to_file
                 .seek(SeekFrom::Start(self.write_pos))
                 .context(StdIoSeekSnafu)?;
+            write_to_file.flush().context(StdIoWriteSnafu)?;
+            write_to_file.sync_all().context(StdIoDirOpsSnafu)?;
         }
         self.persisted_sync.write()?.update_version()
     }

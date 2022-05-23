@@ -277,6 +277,7 @@ impl AtomicStore {
         let serialized = bincode::serialize(&out_state).context(BincodeSerSnafu)?;
         temp_file.write_all(&serialized).context(StdIoWriteSnafu)?;
         temp_file.flush().context(StdIoWriteSnafu)?;
+        temp_file.sync_all().context(StdIoDirOpsSnafu)?;
         if latest_file_path.exists() {
             let last_counter = if self.last_counter.is_none() {
                 let loaded_state = load_state(latest_file_path.as_path())?;
