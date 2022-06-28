@@ -370,6 +370,14 @@
 <span id="370">370</span>
 <span id="371">371</span>
 <span id="372">372</span>
+<span id="373">373</span>
+<span id="374">374</span>
+<span id="375">375</span>
+<span id="376">376</span>
+<span id="377">377</span>
+<span id="378">378</span>
+<span id="379">379</span>
+<span id="380">380</span>
 </pre><pre class="rust"><code><span class="comment">// Copyright (c) 2022 Espresso Systems (espressosys.com)</span>
 <span class="comment">// This file is part of the AtomicStore library.</span>
 
@@ -596,6 +604,10 @@
 
         <span class="self">self</span>.<span class="ident">write_pos</span> <span class="op">+</span><span class="op">=</span> <span class="ident">resource_length</span> <span class="kw">as</span> <span class="ident">u64</span>;
         <span class="kw">if</span> <span class="self">self</span>.<span class="ident">write_pos</span> <span class="op">&gt;</span><span class="op">=</span> <span class="self">self</span>.<span class="ident">file_fill_size</span> {
+            <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="kw-2">ref</span> <span class="kw-2">mut</span> <span class="ident">file</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">write_to_file</span> {
+                <span class="ident">file</span>.<span class="ident">flush</span>().<span class="ident">context</span>(<span class="ident">StdIoWriteSnafu</span>)<span class="question-mark">?</span>; <span class="comment">// drop is not guaranteed to report errors</span>
+                <span class="ident">file</span>.<span class="ident">sync_all</span>().<span class="ident">context</span>(<span class="ident">StdIoDirOpsSnafu</span>)<span class="question-mark">?</span>;
+            }
             <span class="self">self</span>.<span class="ident">write_pos</span> <span class="op">=</span> <span class="number">0</span>;
             <span class="self">self</span>.<span class="ident">write_file_counter</span> <span class="op">+</span><span class="op">=</span> <span class="number">1</span>;
             <span class="self">self</span>.<span class="ident">write_to_file</span> <span class="op">=</span> <span class="prelude-val">None</span>;
@@ -607,6 +619,10 @@
 
     <span class="comment">// This currenty won&#39;t have any effect if called again before the atomic store has processed the prior committed version. A more appropriate behavior might be to block. A version that supports queued writes could enqueue the commit points.</span>
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">commit_version</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span>()<span class="op">&gt;</span> {
+        <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="kw-2">ref</span> <span class="kw-2">mut</span> <span class="ident">file</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">write_to_file</span> {
+            <span class="ident">file</span>.<span class="ident">flush</span>().<span class="ident">context</span>(<span class="ident">StdIoWriteSnafu</span>)<span class="question-mark">?</span>; <span class="comment">// in case the latest write isn&#39;t flushed</span>
+            <span class="ident">file</span>.<span class="ident">sync_all</span>().<span class="ident">context</span>(<span class="ident">StdIoDirOpsSnafu</span>)<span class="question-mark">?</span>;
+        }
         <span class="self">self</span>.<span class="ident">index_log</span>.<span class="ident">commit_version</span>()<span class="question-mark">?</span>;
         <span class="self">self</span>.<span class="ident">persisted_sync</span>.<span class="ident">write</span>()<span class="question-mark">?</span>.<span class="ident">update_version</span>()
     }
