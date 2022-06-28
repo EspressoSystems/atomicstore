@@ -224,6 +224,10 @@ impl<ResourceAdaptor: LoadStore> AppendLog<ResourceAdaptor> {
 
         self.write_pos += resource_length as u64;
         if self.write_pos >= self.file_fill_size {
+            if let Some(ref mut file) = self.write_to_file {
+                file.flush().context(StdIoWriteSnafu)?; // drop is not guaranteed to report errors
+                file.sync_all().context(StdIoDirOpsSnafu)?;
+            }
             self.write_pos = 0;
             self.write_file_counter += 1;
             self.write_to_file = None;
@@ -235,6 +239,10 @@ impl<ResourceAdaptor: LoadStore> AppendLog<ResourceAdaptor> {
 
     // This currenty won't have any effect if called again before the atomic store has processed the prior committed version. A more appropriate behavior might be to block. A version that supports queued writes could enqueue the commit points.
     pub fn commit_version(&mut self) -> Result<()> {
+        if let Some(ref mut file) = self.write_to_file {
+            file.flush().context(StdIoWriteSnafu)?; // in case the latest write isn't flushed
+            file.sync_all().context(StdIoDirOpsSnafu)?;
+        }
         self.index_log.commit_version()?;
         self.persisted_sync.write()?.update_version()
     }
