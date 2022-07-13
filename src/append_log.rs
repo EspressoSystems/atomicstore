@@ -40,12 +40,16 @@ pub struct AppendLog<ResourceAdaptor: LoadStore> {
 }
 
 pub struct Iter<'a, ResourceAdaptor: LoadStore> {
-    inner_iter: fixed_append_log::Iter<'a, StorageLocationLoadStore>,
+    pub(crate) inner_iter: fixed_append_log::Iter<'a, StorageLocationLoadStore>,
     file_path: PathBuf,
     file_pattern: String,
     read_from_file: Option<File>,
     read_from_counter: u32,
     adaptor: &'a ResourceAdaptor,
+}
+
+pub struct IndexedIter<'a> {
+    pub(crate) inner_iter: &'a mut fixed_append_log::Iter<'a, StorageLocationLoadStore>,
 }
 
 fn format_index_file_pattern(file_pattern: &str) -> String {
@@ -279,7 +283,12 @@ impl<ResourceAdaptor: LoadStore> AppendLog<ResourceAdaptor> {
     }
 }
 
-impl<ResourceAdaptor: LoadStore> Iter<'_, ResourceAdaptor> {
+impl<'a, ResourceAdaptor: LoadStore> Iter<'a, ResourceAdaptor> {
+    pub fn to_indexed_iter(&'a mut self) -> IndexedIter<'a> {
+        IndexedIter {
+            inner_iter: &mut self.inner_iter,
+        }
+    }
     fn helper(&mut self, location: &StorageLocation) -> Result<ResourceAdaptor::ParamType> {
         if location.file_counter != self.read_from_counter {
             self.read_from_file = None;
@@ -298,6 +307,9 @@ impl<ResourceAdaptor: LoadStore> Iter<'_, ResourceAdaptor> {
         )
     }
 }
+
+// implement index iterator
+// adaptor to expose size_hint and nth, but adaptor to change next
 
 impl<ResourceAdaptor: LoadStore> Iterator for Iter<'_, ResourceAdaptor> {
     type Item = Result<ResourceAdaptor::ParamType>;
@@ -318,6 +330,21 @@ impl<ResourceAdaptor: LoadStore> Iterator for Iter<'_, ResourceAdaptor> {
                 .nth(n)?
                 .map_or_else(Err, |loc| self.helper(&loc)),
         )
+    }
+}
+
+impl Iterator for IndexedIter<'_> {
+    type Item = Result<StorageLocation>;
+
+    //adaptor that gives tuple (val, storage_location)
+    fn next(&mut self) -> Option<Self::Item> {
+        Some(self.inner_iter.next()?.map_or_else(Err, Ok))
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner_iter.size_hint()
+    }
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        Some(self.inner_iter.nth(n)?.map_or_else(Err, Ok))
     }
 }
 
