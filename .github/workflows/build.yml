@@ -33,7 +33,7 @@ jobs:
           default: true
           components: rustfmt, clippy
 
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
         name: Enable Rust Caching
 
       - name: Format Check
