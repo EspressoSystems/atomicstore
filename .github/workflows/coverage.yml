@@ -4,11 +4,7 @@ on:
   push:
     branches:
       - main
-  pull_request:
-    branches:
-      - main
-  schedule:
-    - cron: '0 0 * * 1'
+      - coverage
   workflow_dispatch:
 
 jobs:
@@ -18,35 +14,25 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v3
 
-      - name: Install Rust Nightly Toolchain
-        uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: nightly
-          override: true
+          toolchain: "1.64"
 
-      - name: Run Cargo Test With Coverage Options
-        uses: actions-rs/cargo@v1
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Enable Rust Caching
+        uses: Swatinem/rust-cache@v2
         with:
-          command: test
-          args: --all-features --no-fail-fast
-        env:
-          CARGO_INCREMENTAL: '0'
-          RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
-          RUSTDOCFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
+          cache-on-failure: true
 
-      - name: Install grcov
+      - name: Generate code coverage
         run: |
-          wget -O grcov.tar.gz https://github.com/mozilla/grcov/releases/download/v0.8.2/grcov-linux-x86_64.tar.bz2
-          tar -xvf grcov.tar.gz
-          sudo mv -v grcov /home/runner/.cargo/bin/
-          rm -rv grcov.tar.gz
-
-      - name: Run Coverage Tool (grcov)
-        uses: actions-rs/grcov@v0.1
-        id: coverage
+          mkdir coverage
+          cargo llvm-cov --workspace --lcov --output-path ./coverage/lcov.info
+        timeout-minutes: 240
 
       - name: Coveralls upload
         uses: coverallsapp/github-action@master
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          path-to-lcov: ${{ steps.coverage.outputs.report }}
