@@ -1,1 +1,1 @@
-initSidebarItems({"struct":[["VersionSyncHandle",""]]});
+window.SIDEBAR_ITEMS = {"struct":[["VersionSyncHandle",""]]};

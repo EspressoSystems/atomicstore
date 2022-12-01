@@ -1,1 +1,1 @@
-initSidebarItems({"constant":[["STORAGE_LOCATION_SERIALIZED_SIZE",""]],"struct":[["StorageLocation",""]]});
+window.SIDEBAR_ITEMS = {"constant":[["STORAGE_LOCATION_SERIALIZED_SIZE",""]],"struct":[["StorageLocation",""]]};
