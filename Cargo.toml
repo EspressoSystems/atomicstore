@@ -17,7 +17,7 @@ serde = { version = "1.0", features = ["derive"] }
 snafu = { version = "0.7", features = ["backtraces"] }
 
 [dev-dependencies]
-array-init = "2.0"
+array-init = "2.1"
 quickcheck = "1.0"
 tempfile = "3.3"
 rand_chacha = "0.3.1"
