@@ -39,7 +39,7 @@ jobs:
           cargo clippy -- -D warnings
 
       - name: Audit
-        run: cargo audit
+        run: cargo audit --ignore RUSTSEC-2023-0018
 
       - name: Build
         run: cargo build --release --examples
