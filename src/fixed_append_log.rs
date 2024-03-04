@@ -7,8 +7,8 @@
 
 use crate::atomic_store::AtomicStoreLoader;
 use crate::error::{
-    BincodeDeSnafu, BincodeSerSnafu, PersistenceError, StdIoDirOpsSnafu, StdIoOpenSnafu,
-    StdIoReadSnafu, StdIoSeekSnafu, StdIoWriteSnafu,
+    BincodeDeSnafu, BincodeSerSnafu, LocationOutOfDateSnafu, PersistenceError, StdIoDirOpsSnafu,
+    StdIoOpenSnafu, StdIoReadSnafu, StdIoSeekSnafu, StdIoWriteSnafu,
 };
 use crate::load_store::LoadStore;
 use crate::storage_location::StorageLocation;
@@ -17,7 +17,7 @@ use crate::version_sync::VersionSyncHandle;
 use crate::Result;
 
 use serde::{Deserialize, Serialize};
-use snafu::ResultExt;
+use snafu::{ensure, ResultExt};
 
 use std::fs;
 use std::fs::{File, OpenOptions};
@@ -170,7 +170,15 @@ impl<ResourceAdaptor: LoadStore + Default> FixedAppendLog<ResourceAdaptor> {
                 });
             }
             let indexed_location = compute_location(&index_contents);
-            if indexed_location != location {}
+            // Ensure the last location written by this log as at least as new as the location saved
+            // in the global index; otherwise, we may be missing data.
+            ensure!(
+                indexed_location >= location,
+                LocationOutOfDateSnafu {
+                    expected_location: location,
+                    stored_location: indexed_location,
+                }
+            );
             commit_index = index_contents.commit_index as u64;
             write_index = commit_index;
         } else {

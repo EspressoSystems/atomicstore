@@ -5,7 +5,6 @@
 // This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 // You should have received a copy of the GNU General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use array_init;
 use atomic_store::{
     append_log::AppendLog,
     atomic_store::{AtomicStore, AtomicStoreLoader},
@@ -96,7 +95,7 @@ fn single_threaded_create_and_populate() -> Result<()> {
     {
         let first_a_locations: Vec<_> = first_array_of_a
             .iter()
-            .map(|a| persisted_a.store_resource(&a).unwrap())
+            .map(|a| persisted_a.store_resource(a).unwrap())
             .collect();
         println!(
             "Stored in files a_store_*, at locations {:?}",
@@ -114,7 +113,7 @@ fn single_threaded_create_and_populate() -> Result<()> {
     {
         let first_b_locations: Vec<_> = first_array_of_b
             .iter()
-            .map(|b| persisted_b.store_resource(&b).unwrap())
+            .map(|b| persisted_b.store_resource(b).unwrap())
             .collect();
 
         println!(
@@ -129,7 +128,10 @@ fn single_threaded_create_and_populate() -> Result<()> {
     // write scope
     {
         let first_c_location = persisted_c.store_resource(&first_c).unwrap();
-        println!("Stored in file b_store_*, at location {}", first_c_location);
+        println!(
+            "Stored in file b_store_*, at location {:?}",
+            first_c_location
+        );
         persisted_c.commit_version()?;
     }
 
@@ -146,7 +148,7 @@ fn single_threaded_create_and_populate() -> Result<()> {
     {
         let _locations: Vec<_> = second_array_of_a
             .iter()
-            .map(|a| persisted_a.store_resource(&a).unwrap())
+            .map(|a| persisted_a.store_resource(a).unwrap())
             .collect();
         persisted_a.commit_version()?;
     }
@@ -157,7 +159,7 @@ fn single_threaded_create_and_populate() -> Result<()> {
     {
         let _locations: Vec<_> = second_array_of_b
             .iter()
-            .map(|b| persisted_b.store_resource(&b).unwrap())
+            .map(|b| persisted_b.store_resource(b).unwrap())
             .collect();
         persisted_b.commit_version()?;
     }
@@ -176,7 +178,7 @@ fn single_threaded_create_and_populate() -> Result<()> {
     {
         let _locations: Vec<_> = third_array_of_a
             .iter()
-            .map(|a| persisted_a.store_resource(&a).unwrap())
+            .map(|a| persisted_a.store_resource(a).unwrap())
             .collect();
         persisted_a.commit_version()?;
     }
@@ -188,7 +190,7 @@ fn single_threaded_create_and_populate() -> Result<()> {
     {
         let _locations: Vec<_> = third_array_of_b
             .iter()
-            .map(|b| persisted_b.store_resource(&b).unwrap())
+            .map(|b| persisted_b.store_resource(b).unwrap())
             .collect();
         // don't commit this one.
     }
@@ -238,7 +240,7 @@ fn single_threaded_load_from_files() -> Result<()> {
     {
         let _locations: Vec<_> = third_array_of_a
             .iter()
-            .map(|a| persisted_a.store_resource(&a).unwrap())
+            .map(|a| persisted_a.store_resource(a).unwrap())
             .collect();
         persisted_a.commit_version()?;
     }
@@ -250,7 +252,7 @@ fn single_threaded_load_from_files() -> Result<()> {
     {
         let _locations: Vec<_> = third_array_of_b
             .iter()
-            .map(|b| persisted_b.store_resource(&b).unwrap())
+            .map(|b| persisted_b.store_resource(b).unwrap())
             .collect();
         persisted_b.commit_version()?;
     }

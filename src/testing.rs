@@ -20,7 +20,6 @@ use core::iter::once;
 use rand::Rng;
 use rand_chacha::ChaChaRng;
 use rand_core::SeedableRng;
-use std::sync::Arc;
 use tempfile::TempDir;
 
 fn poisson_uni<R: Rng>(prng: &mut R, lambda: u16) -> u16 {
@@ -86,7 +85,7 @@ impl quickcheck::Arbitrary for SizeDistribution {
 
     fn shrink(&self) -> Box<(dyn Iterator<Item = Self> + 'static)> {
         match self {
-            Self::Constant(c) => Box::new(c.shrink().map(|c| Self::Constant(c))),
+            Self::Constant(c) => Box::new(c.shrink().map(Self::Constant)),
 
             Self::UniformRange(lo, hi) => {
                 let (lo, hi) = (*core::cmp::min(lo, hi), *core::cmp::max(lo, hi));
@@ -116,10 +115,10 @@ impl quickcheck::Arbitrary for SizeDistribution {
 #[derive(Clone, Debug)]
 enum DataDistribution {
     // RandomNoise,
-    BytePattern(u8, Vec<u8>),
-    U16Pattern(u16, Vec<u16>),
-    U32Pattern(u32, Vec<u32>),
-    U64Pattern(u64, Vec<u64>),
+    Byte(u8, Vec<u8>),
+    U16(u16, Vec<u16>),
+    U32(u32, Vec<u32>),
+    U64(u64, Vec<u64>),
 }
 
 impl DataDistribution {
@@ -128,14 +127,14 @@ impl DataDistribution {
             // Self::RandomNoise => {
             // prng.fill(buf);
             // },
-            Self::BytePattern(v, vs) => {
+            Self::Byte(v, vs) => {
                 let mut all_vs = vec![*v];
                 all_vs.extend(vs.iter().cloned());
                 for (i, b) in buf.iter_mut().enumerate() {
                     *b = all_vs[i % all_vs.len()];
                 }
             }
-            Self::U16Pattern(v, vs) => {
+            Self::U16(v, vs) => {
                 let mut all_vs = vec![*v];
                 all_vs.extend(vs.iter().cloned());
                 for (i, b) in buf.iter_mut().enumerate() {
@@ -144,7 +143,7 @@ impl DataDistribution {
                     *b = ((all_vs[ix % all_vs.len()] >> shift) & 0xff) as u8;
                 }
             }
-            Self::U32Pattern(v, vs) => {
+            Self::U32(v, vs) => {
                 let mut all_vs = vec![*v];
                 all_vs.extend(vs.iter().cloned());
                 for (i, b) in buf.iter_mut().enumerate() {
@@ -153,7 +152,7 @@ impl DataDistribution {
                     *b = ((all_vs[ix % all_vs.len()] >> shift) & 0xff) as u8;
                 }
             }
-            Self::U64Pattern(v, vs) => {
+            Self::U64(v, vs) => {
                 let mut all_vs = vec![*v];
                 all_vs.extend(vs.iter().cloned());
                 for (i, b) in buf.iter_mut().enumerate() {
@@ -170,10 +169,10 @@ impl quickcheck::Arbitrary for DataDistribution {
     fn arbitrary(g: &mut quickcheck::Gen) -> Self {
         let options = [
             // Self::RandomNoise,
-            Self::BytePattern(<_>::arbitrary(g), <_>::arbitrary(g)),
-            Self::U16Pattern(<_>::arbitrary(g), <_>::arbitrary(g)),
-            Self::U32Pattern(<_>::arbitrary(g), <_>::arbitrary(g)),
-            Self::U64Pattern(<_>::arbitrary(g), <_>::arbitrary(g)),
+            Self::Byte(<_>::arbitrary(g), <_>::arbitrary(g)),
+            Self::U16(<_>::arbitrary(g), <_>::arbitrary(g)),
+            Self::U32(<_>::arbitrary(g), <_>::arbitrary(g)),
+            Self::U64(<_>::arbitrary(g), <_>::arbitrary(g)),
         ];
         g.choose(&options).unwrap().clone()
     }
@@ -181,47 +180,47 @@ impl quickcheck::Arbitrary for DataDistribution {
     fn shrink(&self) -> Box<(dyn Iterator<Item = Self> + 'static)> {
         match self {
             // Self::RandomNoise => Box::new(std::iter::empty()),
-            Self::BytePattern(v, vs) => {
-                let v = v.clone();
-                let vs = vs.clone();
-
-                Box::new(
-                    vs.shrink()
-                        .map(move |vs| Self::BytePattern(v, vs.clone()))
-                        .chain(v.shrink().map(move |v| Self::BytePattern(v, vs.clone()))),
-                )
-            }
-
-            Self::U16Pattern(v, vs) => {
+            Self::Byte(v, vs) => {
                 let v = *v;
                 let vs = vs.clone();
 
                 Box::new(
                     vs.shrink()
-                        .map(move |vs| Self::U16Pattern(v, vs.clone()))
-                        .chain(v.shrink().map(move |v| Self::U16Pattern(v, vs.clone()))),
+                        .map(move |vs| Self::Byte(v, vs.clone()))
+                        .chain(v.shrink().map(move |v| Self::Byte(v, vs.clone()))),
                 )
             }
 
-            Self::U32Pattern(v, vs) => {
+            Self::U16(v, vs) => {
                 let v = *v;
                 let vs = vs.clone();
 
                 Box::new(
                     vs.shrink()
-                        .map(move |vs| Self::U32Pattern(v, vs.clone()))
-                        .chain(v.shrink().map(move |v| Self::U32Pattern(v, vs.clone()))),
+                        .map(move |vs| Self::U16(v, vs.clone()))
+                        .chain(v.shrink().map(move |v| Self::U16(v, vs.clone()))),
                 )
             }
 
-            Self::U64Pattern(v, vs) => {
+            Self::U32(v, vs) => {
                 let v = *v;
                 let vs = vs.clone();
 
                 Box::new(
                     vs.shrink()
-                        .map(move |vs| Self::U64Pattern(v, vs.clone()))
-                        .chain(v.shrink().map(move |v| Self::U64Pattern(v, vs.clone()))),
+                        .map(move |vs| Self::U32(v, vs.clone()))
+                        .chain(v.shrink().map(move |v| Self::U32(v, vs.clone()))),
+                )
+            }
+
+            Self::U64(v, vs) => {
+                let v = *v;
+                let vs = vs.clone();
+
+                Box::new(
+                    vs.shrink()
+                        .map(move |vs| Self::U64(v, vs.clone()))
+                        .chain(v.shrink().map(move |v| Self::U64(v, vs.clone()))),
                 )
             }
         }
@@ -273,47 +272,50 @@ impl quickcheck::Arbitrary for LogDescription {
     }
 
     fn shrink(&self) -> Box<(dyn Iterator<Item = Self> + 'static)> {
-        let self_arc = Arc::<Self>::new(self.clone());
-
         Box::new(
             self.file_fill_size
                 .shrink()
                 .filter(|x| *x >= 1)
-                .map((|self_arc: Arc<Self>| {
-                    move |file_fill_size| -> Self {
-                        let mut ret = (*self_arc).clone();
+                .map({
+                    let ret = self.clone();
+                    move |file_fill_size| {
+                        let mut ret = ret.clone();
                         ret.file_fill_size = file_fill_size;
                         ret
                     }
-                })(self_arc.clone()))
-                .chain(self.log_type.shrink().map((|self_arc: Arc<Self>| {
-                    move |log_type| -> Self {
-                        let mut ret = (*self_arc).clone();
+                })
+                .chain(self.log_type.shrink().map({
+                    let ret = self.clone();
+                    move |log_type| {
+                        let mut ret = ret.clone();
                         ret.log_type = log_type;
                         ret
                     }
-                })(self_arc.clone())))
-                .chain(self.data_rate.shrink().map((|self_arc: Arc<Self>| {
-                    move |data_rate| -> Self {
-                        let mut ret = (*self_arc).clone();
+                }))
+                .chain(self.data_rate.shrink().map({
+                    let ret = self.clone();
+                    move |data_rate| {
+                        let mut ret = ret.clone();
                         ret.data_rate = data_rate;
                         ret
                     }
-                })(self_arc.clone())))
-                .chain(self.size_dist.shrink().map((|self_arc: Arc<Self>| {
+                }))
+                .chain(self.size_dist.shrink().map({
+                    let ret = self.clone();
                     move |size_dist| {
-                        let mut ret = (*self_arc).clone();
+                        let mut ret = ret.clone();
                         ret.size_dist = size_dist;
                         ret
                     }
-                })(self_arc.clone())))
-                .chain(self.data_dist.shrink().map((|self_arc: Arc<Self>| {
+                }))
+                .chain(self.data_dist.shrink().map({
+                    let ret = self.clone();
                     move |data_dist| {
-                        let mut ret = (*self_arc).clone();
+                        let mut ret = ret.clone();
                         ret.data_dist = data_dist;
                         ret
                     }
-                })(self_arc))),
+                })),
         )
     }
 }
@@ -325,9 +327,16 @@ struct StoreDescription {
 
 impl quickcheck::Arbitrary for StoreDescription {
     fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-        Self {
-            logs: <_>::arbitrary(g),
-        }
+        let mut logs = <Vec<_>>::arbitrary(g);
+
+        // Quickcheck sometimes generates very long vectors. Limit the length to keep the test
+        // runtime reasonable.
+        logs.truncate(4);
+
+        // Ensure there is at least one log, otherwise the test is useless.
+        logs.push(<_>::arbitrary(g));
+
+        Self { logs }
     }
 
     fn shrink(&self) -> Box<(dyn Iterator<Item = Self> + 'static)> {
@@ -434,6 +443,7 @@ impl Log {
         }
     }
 
+    #[allow(clippy::ptr_arg)]
     fn store_resource(&mut self, val: &Vec<u8>) -> Result<StorageLocation> {
         match self {
             Log::Append(append) => append.store_resource(val),
@@ -498,7 +508,7 @@ impl StorageRunner {
             .map(|(i, (name, log_desc))| -> Result<_> {
                 let orig_name = name.clone();
                 let name = format!("{}_{}", i, name).escape_default().to_string();
-                let name = name.replace("/", "_");
+                let name = name.replace('/', "_");
                 let name = name[..core::cmp::min(10, name.len())].to_string();
                 let log = match log_desc.log_type {
                     StorageType::Append => Log::Append(
@@ -554,7 +564,6 @@ impl StorageRunner {
 
     fn run_action(mut self, action: StorageAction) -> Self {
         use StorageAction::*;
-        // println!("{:?}", &action);
         match action {
             Commit => {
                 for log in self.logs.iter_mut() {
@@ -627,10 +636,7 @@ impl StorageRunner {
                         let buf_size = core::cmp::min(1 + max_buf_size as usize, buf_size);
                         let buf_size = core::cmp::max(1, buf_size);
 
-                        // println!("  writing {} bytes to {}", buf_size, log.name);
-
-                        let mut buf = Vec::with_capacity(buf_size);
-                        buf.resize(buf_size, 0);
+                        let mut buf = vec![0; buf_size];
                         log.desc.data_dist.sample(&mut log_prng, &mut buf);
 
                         let loc = log.log.store_resource(&buf).unwrap();
@@ -711,16 +717,28 @@ impl StorageRunner {
 }
 
 fn store_test_scenario(actions: Vec<StorageAction>, desc: StoreDescription) {
-    // println!("{:?}", desc);
+    println!(
+        "running {} actions, {} logs",
+        actions.len(),
+        desc.logs.len()
+    );
     let mut runner = StorageRunner::new(desc).unwrap();
     for action in actions {
         runner = runner.run_action(action);
     }
 }
 
-#[quickcheck]
-fn store_test_scenario_quickcheck(actions: Vec<StorageAction>, desc: StoreDescription) {
-    store_test_scenario(actions, desc)
+#[test]
+fn store_test_scenario_quickcheck() {
+    fn property(mut actions: Vec<StorageAction>, desc: StoreDescription) {
+        // Quickcheck sometimes generates very long vectors; limit the length to keep the runtime
+        // reasonable.
+        actions.truncate(10);
+        store_test_scenario(actions, desc);
+    }
+    quickcheck::QuickCheck::new()
+        .tests(10)
+        .quickcheck(property as fn(Vec<StorageAction>, StoreDescription))
 }
 
 #[test]
@@ -755,7 +773,7 @@ fn store_test_scenario_regressions() {
                     log_type: Rolling,
                     data_rate: Constant(1),
                     size_dist: Constant(0),
-                    data_dist: U32Pattern(0, vec![]),
+                    data_dist: U32(0, vec![]),
                 },
             )],
         },
@@ -782,7 +800,7 @@ fn store_test_scenario_regressions() {
                     log_type: Append,
                     data_rate: Constant(1),
                     size_dist: Constant(0),
-                    data_dist: U16Pattern(0, vec![]),
+                    data_dist: U16(0, vec![]),
                 },
             )],
         },
@@ -811,7 +829,7 @@ fn store_test_scenario_regressions() {
                     log_type: Rolling,
                     data_rate: Constant(2),
                     size_dist: Constant(0),
-                    data_dist: BytePattern(1, vec![]),
+                    data_dist: Byte(1, vec![]),
                 },
             )],
         },

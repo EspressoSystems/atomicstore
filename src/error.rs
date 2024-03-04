@@ -5,6 +5,7 @@
 // This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 // You should have received a copy of the GNU General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+use crate::storage_location::StorageLocation;
 use ark_serialize;
 use bincode;
 use glob;
@@ -100,6 +101,11 @@ pub enum PersistenceError {
     SyncPoison { description: String },
     /// `AtomicStore::commit_version` took to long to wait for Log versions and timed out
     TimedOut,
+    #[snafu(display("location {stored_location:?} stored by log is older than location {expected_location:?} in global index"))]
+    LocationOutOfDate {
+        stored_location: StorageLocation,
+        expected_location: StorageLocation,
+    },
 }
 
 impl<T> From<std::sync::PoisonError<T>> for PersistenceError {

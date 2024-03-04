@@ -167,8 +167,8 @@ impl AtomicStoreLoader {
             temp_path.push("temporary");
             backup_path.push(format!("backup.{}", unix_timestamp()));
 
-            fs::rename(&storage_path, &temp_path).context(StdIoDirOpsSnafu)?;
-            fs::create_dir(&storage_path).context(StdIoDirOpsSnafu)?;
+            fs::rename(storage_path, &temp_path).context(StdIoDirOpsSnafu)?;
+            fs::create_dir(storage_path).context(StdIoDirOpsSnafu)?;
             fs::rename(&temp_path, &backup_path).context(StdIoDirOpsSnafu)?;
         }
         // TODO: sane behavior if files are already present
@@ -288,7 +288,7 @@ impl AtomicStore {
             let archived_file_path =
                 format_archived_file_path(&self.file_path, &self.file_pattern, last_counter);
 
-            fs::rename(&latest_file_path, &archived_file_path).context(StdIoDirOpsSnafu)?;
+            fs::rename(&latest_file_path, archived_file_path).context(StdIoDirOpsSnafu)?;
         }
         self.last_counter = Some(self.file_counter);
         fs::rename(&temp_file_path, &latest_file_path).context(StdIoDirOpsSnafu)?;
