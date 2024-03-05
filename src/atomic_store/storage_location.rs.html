@@ -38,11 +38,11 @@
 
 <span class="kw">use</span> <span class="ident">std::fmt</span>;
 
-<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Debug</span>, <span class="ident">Copy</span>, <span class="ident">Clone</span>, <span class="ident">Default</span>, <span class="ident">PartialEq</span>, <span class="ident">Eq</span>, <span class="ident">Serialize</span>, <span class="ident">Deserialize</span>)]</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Debug</span>, <span class="ident">Copy</span>, <span class="ident">Clone</span>, <span class="ident">Default</span>, <span class="ident">PartialEq</span>, <span class="ident">Eq</span>, <span class="ident">PartialOrd</span>, <span class="ident">Ord</span>, <span class="ident">Serialize</span>, <span class="ident">Deserialize</span>)]</span>
 <span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">StorageLocation</span> {
+    <span class="kw">pub</span> <span class="ident">file_counter</span>: <span class="ident">u32</span>,
     <span class="kw">pub</span> <span class="ident">store_start</span>: <span class="ident">u64</span>,
     <span class="kw">pub</span> <span class="ident">store_length</span>: <span class="ident">u32</span>,
-    <span class="kw">pub</span> <span class="ident">file_counter</span>: <span class="ident">u32</span>,
 }
 
 <span class="kw">impl</span> <span class="ident">fmt::Display</span> <span class="kw">for</span> <span class="ident">StorageLocation</span> {
