@@ -9,11 +9,11 @@ use serde::{Deserialize, Serialize};
 
 use std::fmt;
 
-#[derive(Debug, Copy, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct StorageLocation {
+    pub file_counter: u32,
     pub store_start: u64,
     pub store_length: u32,
-    pub file_counter: u32,
 }
 
 impl fmt::Display for StorageLocation {

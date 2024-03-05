@@ -10,10 +10,6 @@ mod testing;
 
 mod utils;
 
-#[cfg(test)]
-#[macro_use]
-extern crate quickcheck_macros;
-
 pub mod append_log;
 pub mod atomic_store;
 pub mod error;
