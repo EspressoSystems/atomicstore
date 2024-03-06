@@ -20,7 +20,7 @@ tracing = "0.1"
 [dev-dependencies]
 array-init = "2.1"
 quickcheck = "1.0"
-tempfile = "3.6"
+tempfile = "3.10"
 rand_chacha = "0.3.1"
 rand = "0.8.4"
 rand_distr = "0.4.3"
