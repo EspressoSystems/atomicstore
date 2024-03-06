@@ -42,7 +42,7 @@ jobs:
         run: cargo build --release --examples
 
       - name: Test
-        run: cargo test --release --all-features -- -Zunstable-options --report-time
+        run: cargo test --release --all-features --verbose
 
       - name: Generate Documentation
         run: |
