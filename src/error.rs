@@ -8,7 +8,6 @@
 use crate::storage_location::StorageLocation;
 use ark_serialize;
 use bincode;
-use glob;
 use snafu::prelude::*;
 
 /// Error type for AtomicStore
@@ -93,10 +92,6 @@ pub enum PersistenceError {
     OtherLoad {
         inner: Box<dyn std::error::Error + Send + Sync>,
     },
-    /// Glob syntax error
-    GlobSyntax { source: glob::PatternError },
-    /// Glob iteration error
-    GlobRuntime { source: glob::GlobError },
     /// Placeholder for PoisonError specializations
     SyncPoison { description: String },
     /// `AtomicStore::commit_version` took to long to wait for Log versions and timed out

@@ -6,15 +6,15 @@
 // You should have received a copy of the GNU General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use crate::error::{
-    BincodeDeSnafu, BincodeSerSnafu, GlobRuntimeSnafu, GlobSyntaxSnafu, PersistenceError,
-    StdIoDirOpsSnafu, StdIoOpenSnafu, StdIoReadSnafu, StdIoWriteSnafu,
+    BincodeDeSnafu, BincodeSerSnafu, PersistenceError, StdIoDirOpsSnafu, StdIoOpenSnafu,
+    StdIoReadSnafu, StdIoWriteSnafu,
 };
 use crate::storage_location::StorageLocation;
 use crate::utils::unix_timestamp;
 use crate::version_sync::VersionSyncHandle;
 use crate::Result;
 
-use glob::glob;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use snafu::ResultExt;
 
@@ -24,7 +24,6 @@ use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
@@ -41,18 +40,6 @@ fn load_state(path: &Path) -> Result<AtomicStoreFileContents> {
     let mut buf = Vec::new();
     file.read_to_end(&mut buf).context(StdIoReadSnafu)?;
     bincode::deserialize::<AtomicStoreFileContents>(&buf[..]).context(BincodeDeSnafu)
-}
-
-fn extract_count(file_pattern: &str, path_result: &glob::GlobResult) -> Option<u32> {
-    if let Ok(path) = path_result {
-        let suffix = path
-            .file_name()?
-            .to_str()?
-            .strip_prefix(file_pattern)?
-            .strip_prefix("_archived_")?;
-        return u32::from_str(suffix).ok();
-    }
-    None
 }
 
 fn format_latest_file_path(root_path: &Path, file_pattern: &str) -> PathBuf {
@@ -73,6 +60,72 @@ fn format_working_file_path(root_path: &Path, file_pattern: &str) -> PathBuf {
     buf
 }
 
+/// Iterate over archive files in the directory `root_path`.
+///
+/// Yields (in an unspecified order) file paths for each archive file in `root_path`, along with the
+/// file counter associated with each archive file.
+fn archive_files<'a>(
+    root_path: &'a Path,
+    file_pattern: &'a str,
+) -> Result<impl 'a + Iterator<Item = Result<(PathBuf, u32)>>> {
+    let re = Regex::new(&format!("^{file_pattern}_archived_(\\d+)$")).unwrap();
+    Ok(fs::read_dir(root_path)
+        .context(StdIoDirOpsSnafu)?
+        .map(move |de| {
+            let de = de.context(StdIoDirOpsSnafu)?;
+            let os_name = de.file_name();
+            let Some(name) = os_name.to_str() else {
+                // If the file name is not unicode, it cannot match the archive file pattern.
+                return Ok(None);
+            };
+            let Some(captures) = re.captures(name) else {
+                return Ok(None);
+            };
+            // The regex used cannot match without capturing something in the first capture group,
+            // so `.get(1).unwrap()` will never panic.
+            let archive_num_str = captures.get(1).unwrap().as_str();
+            let Ok(archive_num) = archive_num_str.parse() else {
+                // If the "archive number" portion of the file name is not a number, then this is
+                // not an archive file after all.
+                return Ok(None);
+            };
+            Ok(Some((root_path.join(name), archive_num)))
+        })
+        // Filter out `Ok(None)` entries, which are files that didn't match the archive file
+        // pattern.
+        .filter_map(Result::transpose))
+}
+
+fn archive_file_exists(root_path: &Path, file_pattern: &str) -> Result<bool> {
+    let mut err = None;
+    for res in archive_files(root_path, file_pattern)? {
+        match res {
+            // If the iterator yields any element successfully, then at least one archive file
+            // exists.
+            Ok(_) => return Ok(true),
+            Err(e) => err = Some(e),
+        }
+    }
+    if let Some(err) = err {
+        // If we didn't find an archive file but encountered an error while iterating, we can't be
+        // sure whether there is an archive file.
+        Err(err)
+    } else {
+        Ok(false)
+    }
+}
+
+fn prune_archives(root_path: &Path, file_pattern: &str, below: u32) -> Result<()> {
+    for res in archive_files(root_path, file_pattern)? {
+        let (path, num) = res?;
+        if num >= below {
+            continue;
+        }
+        fs::remove_file(path).context(StdIoDirOpsSnafu)?;
+    }
+    Ok(())
+}
+
 /// Enables each managed resource storage instance to initialize before creating the AtomicStore.
 pub struct AtomicStoreLoader {
     file_path: PathBuf,
@@ -82,6 +135,9 @@ pub struct AtomicStoreLoader {
     // TODO: type checking on load/store format embedded in StorageLocation?
     resource_files: HashMap<String, StorageLocation>,
     resources: HashMap<String, Arc<RwLock<VersionSyncHandle>>>,
+    // How many backup index files to retain at any given time. If `None`, all archives will be
+    // retained.
+    retained_archives: Option<u32>,
 }
 
 impl AtomicStoreLoader {
@@ -95,29 +151,14 @@ impl AtomicStoreLoader {
         } else {
             let max_match = if storage_path.exists() {
                 // attempt to use the most recent backup file
-                let mut path_pattern_buf = file_path.clone();
-                path_pattern_buf.push(format!("{}_archived_*", file_pattern));
-                let path_pattern = path_pattern_buf.to_string_lossy().to_string();
-                // TODO: could be simplified by doing a length sort and then a lexical sort of the longest length.
-                glob(&path_pattern)
-                    .context(GlobSyntaxSnafu)?
-                    .max_by_key(|res| -> i32 {
-                        if let Some(count) = extract_count(file_pattern, res) {
-                            count as i32
-                        } else {
-                            -1
-                        }
-                    })
+                archive_files(storage_path, file_pattern)?
+                    .max_by_key(|res| Some(res.as_ref().ok()?.1))
+                    .and_then(|res| Some(res.ok()?.0))
             } else {
                 fs::create_dir_all(storage_path).context(StdIoDirOpsSnafu)?;
                 None
             };
 
-            // let matches = glob(&path_pattern).context(GlobSyntaxSnafu)?.filter_map(|path_res| extract_count(file_pattern, path_res)).collect::<BTreeMap<u32,PathBuf>>();
-            // TODO: more resiliant approach that may be able to recover after one or more stores are corrupted...
-            // for (key, value) in matches.iter().rev() {
-            //     // attempt to load, return on success
-            // }
             if max_match.is_none() {
                 // start from scratch
                 return Ok(AtomicStoreLoader {
@@ -127,9 +168,10 @@ impl AtomicStoreLoader {
                     initial_run: true,
                     resource_files: HashMap::new(),
                     resources: HashMap::new(),
+                    retained_archives: None,
                 });
             }
-            alt_path_buf = max_match.unwrap().context(GlobRuntimeSnafu)?;
+            alt_path_buf = max_match.unwrap();
             alt_path_buf.as_path()
         };
         if !load_path.is_file() {
@@ -145,13 +187,14 @@ impl AtomicStoreLoader {
             initial_run: false,
             resource_files: loaded_state.resource_files,
             resources: HashMap::new(),
+            retained_archives: None,
         })
     }
     /// Attempt to initialize a new atomic state in the specified directory; if files exist, will back up existing directory before creating
     pub fn create(storage_path: &Path, file_pattern: &str) -> Result<AtomicStoreLoader> {
         if !storage_path.exists() {
             fs::create_dir_all(storage_path).context(StdIoDirOpsSnafu)?;
-        } else if format_archived_file_path(storage_path, file_pattern, 0).exists()
+        } else if archive_file_exists(storage_path, file_pattern)?
             || format_latest_file_path(storage_path, file_pattern).exists()
         {
             let mut backup_path = storage_path.to_path_buf();
@@ -179,8 +222,14 @@ impl AtomicStoreLoader {
             initial_run: true,
             resource_files: HashMap::new(),
             resources: HashMap::new(),
+            retained_archives: None,
         })
     }
+
+    pub fn retain_archives(&mut self, retained_archives: u32) {
+        self.retained_archives = Some(retained_archives);
+    }
+
     pub(crate) fn persistence_path(&self) -> &Path {
         self.file_path.as_path()
     }
@@ -215,6 +264,9 @@ pub struct AtomicStore {
     // How long `commit_version` will wait for resource versions before returning an error.
     // defaults to 100 milliseconds
     commit_timeout: Duration,
+    // How many backup index files to retain at any given time. If `None`, all archives will be
+    // retained.
+    retained_archives: Option<u32>,
 }
 
 impl AtomicStore {
@@ -224,6 +276,21 @@ impl AtomicStore {
         } else {
             Duration::from_millis(100)
         };
+
+        if !load_info.initial_run {
+            if let Some(retained_archives) = load_info.retained_archives {
+                // At startup, prune all existing archive files that fall outside the retaining
+                // window. This is necessary in case the `retained_archives` parameter has changed
+                // since the last time the store was opened. Once this is done, we know the number
+                // of archive files on disk is consistent with `retained_archives`, and we only need
+                // to check for at most one old archive each time we commit a new version.
+                prune_archives(
+                    &load_info.file_path,
+                    &load_info.file_pattern,
+                    load_info.file_counter.saturating_sub(retained_archives),
+                )?;
+            }
+        }
 
         Ok(AtomicStore {
             file_path: load_info.file_path,
@@ -240,6 +307,7 @@ impl AtomicStore {
             },
             resources: load_info.resources,
             commit_timeout,
+            retained_archives: load_info.retained_archives,
         })
     }
 
@@ -292,6 +360,26 @@ impl AtomicStore {
         }
         self.last_counter = Some(self.file_counter);
         fs::rename(&temp_file_path, &latest_file_path).context(StdIoDirOpsSnafu)?;
+
+        // Prune an old archive if this commit has just pushed one outside of the retention window.
+        if let Some(retained_archives) = self.retained_archives {
+            if let Some(num) = self.file_counter.checked_sub(retained_archives + 1) {
+                let prune_path =
+                    format_archived_file_path(&self.file_path, &self.file_pattern, num);
+                if prune_path.exists() {
+                    if let Err(err) = fs::remove_file(&prune_path) {
+                        // If we fail to prune the old archive, we have still committed the version
+                        // update, so we shouldn't fail here. Just log a warning.
+                        tracing::warn!(
+                            %err,
+                            path = %prune_path.display(),
+                            "failed to prune old archive file",
+                        );
+                    }
+                }
+            }
+        }
+
         self.file_counter += 1; // advance for the next version
         Ok(())
     }
@@ -324,4 +412,61 @@ fn test_atomic_store_log_timeout() {
     // Committing again should work
     log.commit_version().expect("Could not commit log");
     store.commit_version().expect("Could not commit store");
+}
+
+#[test]
+fn test_archive_pruning() {
+    let dir = tempfile::tempdir().expect("Could not create tempdir");
+    let file_pattern = "test_archive_pruning";
+
+    let list_archives = || {
+        let mut versions = archive_files(dir.path(), file_pattern)
+            .unwrap()
+            .map(|res| res.unwrap().1)
+            .collect::<Vec<_>>();
+        versions.sort();
+        versions
+    };
+
+    // First create a store without any pruning and create several archive files.
+    {
+        let loader = AtomicStoreLoader::create(dir.path(), file_pattern)
+            .expect("Could not create an atomic store");
+        let mut store = AtomicStore::open(loader).expect("Could not open store");
+
+        for _ in 0..5 {
+            store.commit_version().expect("Could not commit store");
+        }
+        // There should be one archive for each committed version except the latest.
+        assert_eq!(list_archives(), vec![0, 1, 2, 3]);
+    }
+
+    // Now reopen the store with pruning turned on; ensure old versions get pruned immediately.
+    {
+        let mut loader = AtomicStoreLoader::load(dir.path(), file_pattern)
+            .expect("Could not create an atomic store");
+        loader.retain_archives(2);
+        let mut store = AtomicStore::open(loader).expect("Could not open store");
+
+        assert_eq!(list_archives(), vec![2, 3]);
+
+        // Commit more versions, check that we always retain the two latest archives.
+        for i in 5..10 {
+            store.commit_version().expect("Could not commit store");
+            assert_eq!(list_archives(), vec![i - 2, i - 1])
+        }
+    }
+
+    // Check that we can delete the latest version and reload from an archive, even though some
+    // older archives have been pruned.
+    {
+        let latest = format_latest_file_path(dir.path(), file_pattern);
+        assert!(latest.exists());
+        fs::remove_file(latest).expect("Could not delete latest version");
+
+        let loader = AtomicStoreLoader::load(dir.path(), file_pattern)
+            .expect("Could not create an atomic store");
+        let store = AtomicStore::open(loader).expect("Could not open store");
+        assert_eq!(store.file_counter, 9);
+    }
 }
