@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":[["VersionSyncHandle",""]]};
+window.SIDEBAR_ITEMS = {"struct":["VersionSyncHandle"]};

@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":[["unix_timestamp","Get the unix timestamp"]]};
+window.SIDEBAR_ITEMS = {"fn":["unix_timestamp"]};

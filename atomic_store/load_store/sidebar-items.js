@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":[["ArkLoadStore",""],["BincodeLoadStore",""]],"trait":[["LoadStore",""]],"type":[["StorageLocationLoadStore",""]]};
+window.SIDEBAR_ITEMS = {"struct":["ArkLoadStore","BincodeLoadStore"],"trait":["LoadStore"],"type":["StorageLocationLoadStore"]};
