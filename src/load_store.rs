@@ -55,12 +55,13 @@ impl<ParamType: CanonicalSerialize + CanonicalDeserialize> LoadStore for ArkLoad
     type ParamType = ParamType;
 
     fn load(&self, stream: &[u8]) -> Result<Self::ParamType> {
-        Self::ParamType::deserialize(stream).map_err(|err| PersistenceError::ArkDe { err })
+        Self::ParamType::deserialize_compressed(stream)
+            .map_err(|err| PersistenceError::ArkDe { err })
     }
     fn store(&mut self, param: &Self::ParamType) -> Result<Vec<u8>> {
         let mut ser_bytes: Vec<u8> = Vec::new();
         param
-            .serialize(&mut ser_bytes)
+            .serialize_compressed(&mut ser_bytes)
             .map_err(|err| PersistenceError::ArkSer { err })?;
         Ok(ser_bytes)
     }

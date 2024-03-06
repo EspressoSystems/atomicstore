@@ -10,8 +10,8 @@ license = "GPL-3.0-or-later"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ark-serialize = "0.4.2"
-bincode = "1.3.3"
+ark-serialize = "0.4"
+bincode = "1.3"
 regex = "1.10"
 serde = { version = "1.0", features = ["derive"] }
 snafu = { version = "0.7", features = ["backtraces"] }
@@ -21,9 +21,9 @@ tracing = "0.1"
 array-init = "2.1"
 quickcheck = "1.0"
 tempfile = "3.10"
-rand_chacha = "0.3.1"
-rand = "0.8.4"
-rand_distr = "0.4.3"
-rand_core = "0.6.4"
+rand_chacha = "0.3"
+rand = "0.8"
+rand_distr = "0.4"
+rand_core = "0.6"
 quickcheck_macros = "1.0"
 
