@@ -186,6 +186,7 @@ impl<ResourceAdaptor: LoadStore> AppendLog<ResourceAdaptor> {
             .read(true)
             .write(true)
             .create(true)
+            .truncate(false)
             .open(out_file_path)
             .context(StdIoOpenSnafu)?;
         file.seek(SeekFrom::End(0)).context(StdIoSeekSnafu)?;
