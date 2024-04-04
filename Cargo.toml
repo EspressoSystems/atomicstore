@@ -1,11 +1,13 @@
 [package]
-name = "atomic_store"
+name = "atomic-store"
 description = "Persistence with atomic synchronization for a single version of record"
-version = "0.1.3"
+version = "0.1.5"
 authors = ["Espresso Systems <hello@espressosys.com>"]
 edition = "2021"
+rust-version = "1.65.0"
 readme = "README.md"
-license = "GPL-3.0-or-later"
+license = "MIT"
+repository = "https://github.com/EspressoSystems/atomicstore.git"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -14,7 +16,7 @@ ark-serialize = "0.4"
 bincode = "1.3"
 regex = "1.10"
 serde = { version = "1.0", features = ["derive"] }
-snafu = { version = "0.7", features = ["backtraces"] }
+snafu = "0.8"
 tracing = "0.1"
 
 [dev-dependencies]
@@ -26,4 +28,3 @@ rand = "0.8"
 rand_distr = "0.4"
 rand_core = "0.6"
 quickcheck_macros = "1.0"
-

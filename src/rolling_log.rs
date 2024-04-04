@@ -169,6 +169,7 @@ impl<ResourceAdaptor: LoadStore> RollingLog<ResourceAdaptor> {
             .read(true)
             .write(true)
             .create(true)
+            .truncate(false)
             .open(out_file_path.clone())
             .context(StdIoOpenSnafu)?;
         file.seek(SeekFrom::End(0)).context(StdIoSeekSnafu)?;
