@@ -89,7 +89,7 @@ impl<ResourceAdaptor: LoadStore> AppendLog<ResourceAdaptor> {
                     StorageLocationLoadStore::default(),
                     &index_pattern,
                     STORAGE_LOCATION_SERIALIZED_SIZE,
-                    256,
+                    4096,
                 )?;
                 let append_point = location.store_start + location.store_length as u64;
                 if append_point < file_fill_size {
@@ -104,7 +104,7 @@ impl<ResourceAdaptor: LoadStore> AppendLog<ResourceAdaptor> {
                     StorageLocationLoadStore::default(),
                     &index_pattern,
                     STORAGE_LOCATION_SERIALIZED_SIZE,
-                    256,
+                    4096,
                 )?;
                 (0, 0, index_log)
             }
