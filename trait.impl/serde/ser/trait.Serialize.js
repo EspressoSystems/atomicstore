@@ -1,3 +1,9 @@
-(function() {var implementors = {
-"atomic_store":[["impl <a class=\"trait\" href=\"https://docs.rs/serde/1.0.197/serde/ser/trait.Serialize.html\" title=\"trait serde::ser::Serialize\">Serialize</a> for <a class=\"struct\" href=\"atomic_store/storage_location/struct.StorageLocation.html\" title=\"struct atomic_store::storage_location::StorageLocation\">StorageLocation</a>"],["impl <a class=\"trait\" href=\"https://docs.rs/serde/1.0.197/serde/ser/trait.Serialize.html\" title=\"trait serde::ser::Serialize\">Serialize</a> for <a class=\"struct\" href=\"atomic_store/atomic_store/struct.AtomicStoreFileContents.html\" title=\"struct atomic_store::atomic_store::AtomicStoreFileContents\">AtomicStoreFileContents</a>"],["impl <a class=\"trait\" href=\"https://docs.rs/serde/1.0.197/serde/ser/trait.Serialize.html\" title=\"trait serde::ser::Serialize\">Serialize</a> for <a class=\"struct\" href=\"atomic_store/fixed_append_log/struct.IndexContents.html\" title=\"struct atomic_store::fixed_append_log::IndexContents\">IndexContents</a>"]]
-};if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()
+(function() {
+    var implementors = Object.fromEntries([["atomic_store",[["impl <a class=\"trait\" href=\"https://docs.rs/serde/1.0.197/serde/ser/trait.Serialize.html\" title=\"trait serde::ser::Serialize\">Serialize</a> for <a class=\"struct\" href=\"atomic_store/atomic_store/struct.AtomicStoreFileContents.html\" title=\"struct atomic_store::atomic_store::AtomicStoreFileContents\">AtomicStoreFileContents</a>"],["impl <a class=\"trait\" href=\"https://docs.rs/serde/1.0.197/serde/ser/trait.Serialize.html\" title=\"trait serde::ser::Serialize\">Serialize</a> for <a class=\"struct\" href=\"atomic_store/fixed_append_log/struct.IndexContents.html\" title=\"struct atomic_store::fixed_append_log::IndexContents\">IndexContents</a>"],["impl <a class=\"trait\" href=\"https://docs.rs/serde/1.0.197/serde/ser/trait.Serialize.html\" title=\"trait serde::ser::Serialize\">Serialize</a> for <a class=\"struct\" href=\"atomic_store/storage_location/struct.StorageLocation.html\" title=\"struct atomic_store::storage_location::StorageLocation\">StorageLocation</a>"]]]]);
+    if (window.register_implementors) {
+        window.register_implementors(implementors);
+    } else {
+        window.pending_implementors = implementors;
+    }
+})()
+//{"start":57,"fragment_lengths":[1006]}
