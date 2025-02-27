@@ -182,6 +182,8 @@ impl<ResourceAdaptor: LoadStore> AppendLog<ResourceAdaptor> {
                 }
             }
         }
+
+        #[allow(clippy::suspicious_open_options)]
         let mut file = OpenOptions::new()
             .read(true)
             .write(true)
